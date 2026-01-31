@@ -2,7 +2,9 @@ package proxy
 
 import (
 	"fmt"
+	"io"
 	"net"
+	"sync"
 )
 
 type Server struct {
@@ -28,9 +30,33 @@ func (s *Server) Start() error {
 			fmt.Println("Error accepting connection:", err)
 			continue
 		}
-		go func(c net.Conn) {
-			defer c.Close()
-			fmt.Println("Accepted connection from", c.RemoteAddr())
-		}(conn)
+		go s.handleConnection(conn)
 	}
+}
+
+func (s *Server) handleConnection(clientConn net.Conn) {
+	backendConn, err := net.Dial("tcp", s.backendAddr)
+	if err != nil {
+		fmt.Println("Error connecting to backend:", err)
+		clientConn.Close()
+		return
+	}
+	defer backendConn.Close()
+	fmt.Println("Proxying data between", clientConn.RemoteAddr(), "and backend", s.backendAddr)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	copyAndClose := func(dst, src net.Conn) {
+		defer wg.Done()
+		_, err := io.Copy(dst, src)
+		if err != nil {
+			fmt.Println("Error during data copy:", err)
+		}
+
+		dst.Close()
+		src.Close()
+	}
+	go copyAndClose(backendConn, clientConn)
+	go copyAndClose(clientConn, backendConn)
+	wg.Wait()
+	fmt.Println("Finished proxying for", clientConn.RemoteAddr())
 }
