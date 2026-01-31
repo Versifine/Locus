@@ -4,6 +4,7 @@ import (
 	"log"
 
 	"github.com/Versifine/locus/internal/config"
+	"github.com/Versifine/locus/internal/proxy"
 )
 
 func main() {
@@ -11,6 +12,13 @@ func main() {
 	if err != nil {
 		log.Fatal("Error loading config:", err)
 	}
-	log.Printf("Config loaded: %+v\n", cfg)
+	server := proxy.NewServer(
+		cfg.Listen.Host+":"+string(cfg.Listen.Port),
+		cfg.Backend.Host+":"+string(cfg.Backend.Port),
+	)
+	err = server.Start()
+	if err != nil {
+		log.Fatal("Error starting server:", err)
+	}
 
 }
