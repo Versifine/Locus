@@ -33,8 +33,8 @@ func ReadVarint(r io.Reader) (value int32, err error) {
 }
 
 func WriteVarint(w io.Writer, value int32) (err error) {
+	uvalue := uint32(value)
 	for {
-		uvalue := uint32(value)
 		temp := byte(uvalue & SEGMENT_BITS)
 		uvalue >>= 7
 		if uvalue != 0 {
@@ -74,8 +74,8 @@ func ReadVarLong(r io.Reader) (value int64, err error) {
 	return
 }
 func WriteVarLong(w io.Writer, value int64) (err error) {
+	uvalue := uint64(value)
 	for {
-		uvalue := uint64(value)
 		temp := byte(uvalue & SEGMENT_BITS)
 		uvalue >>= 7
 		if uvalue != 0 {
