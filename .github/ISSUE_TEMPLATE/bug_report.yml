@@ -1,0 +1,122 @@
+name: 🐛 Bug 报告
+description: 发现了一个 Bug？帮助我们改进 Locus
+title: "[Bug] "
+labels: ["bug", "待确认"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你花时间填写这个 Bug 报告！请尽可能详细地描述问题。
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 清晰简洁地描述这个 Bug
+      placeholder: 例如："当我连接到服务器时，代理崩溃了"
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 如何复现这个问题？
+      placeholder: |
+        1. 启动 Locus 代理
+        2. 使用 Minecraft 客户端连接
+        3. 发送聊天消息
+        4. 观察到错误
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+      description: 你期望发生什么？
+      placeholder: 例如："代理应该正常转发消息"
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+      description: 实际发生了什么？
+      placeholder: 例如："代理崩溃并显示错误消息"
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 错误日志
+      description: 请粘贴相关的错误日志（如果有）
+      render: shell
+      placeholder: |
+        [ERROR] panic: runtime error: invalid memory address
+        goroutine 1 [running]:
+        ...
+
+  - type: input
+    id: version
+    attributes:
+      label: Locus 版本
+      description: 你使用的 Locus 版本是？
+      placeholder: 例如："v0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: mc-version
+    attributes:
+      label: Minecraft 版本
+      description: 你使用的 Minecraft 版本是？
+      placeholder: 例如："1.20.4"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: 操作系统
+      description: 你在什么操作系统上运行 Locus？
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Docker
+        - 其他
+    validations:
+      required: true
+
+  - type: input
+    id: go-version
+    attributes:
+      label: Go 版本
+      description: 如果是从源码编译的，你使用的 Go 版本是？
+      placeholder: 例如："go1.21.5"
+
+  - type: textarea
+    id: context
+    attributes:
+      label: 额外信息
+      description: 其他任何可能有帮助的信息
+      placeholder: |
+        - 配置文件内容
+        - 网络环境
+        - 其他相关信息
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: 检查清单
+      description: 提交前请确认
+      options:
+        - label: 我已经搜索过现有的 Issue，确认这不是重复的问题
+          required: true
+        - label: 我已经阅读过文档和 README
+          required: true
+        - label: 我使用的是最新版本的 Locus
+          required: false

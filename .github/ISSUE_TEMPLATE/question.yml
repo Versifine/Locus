@@ -1,0 +1,64 @@
+name: ❓ 问题咨询
+description: 有使用上的疑问？需要帮助？
+title: "[Question] "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        在提问前，请先查看 [README](https://github.com/Versifine/locus/blob/master/README.md) 和现有的 Issue。
+
+  - type: textarea
+    id: question
+    attributes:
+      label: 你的问题
+      description: 请详细描述你的问题
+      placeholder: |
+        例如："如何配置 Locus 使用自定义的 LLM 端点？"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-tried
+    attributes:
+      label: 你尝试过什么
+      description: 你已经尝试了哪些方法？
+      placeholder: |
+        - 阅读了 README
+        - 查看了配置文件
+        - 尝试了某某方法，但是...
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: 环境信息
+      description: 你的运行环境（如果相关）
+      placeholder: |
+        - Locus 版本：v0.1.0
+        - Minecraft 版本：1.20.4
+        - 操作系统：Windows 11
+        - Go 版本：go1.21.5
+
+  - type: textarea
+    id: config
+    attributes:
+      label: 配置文件
+      description: 如果与配置相关，请粘贴你的配置（移除敏感信息！）
+      render: yaml
+      placeholder: |
+        listen:
+          host: "0.0.0.0"
+          port: 25565
+        backend:
+          host: "127.0.0.1"
+          port: 25566
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: 检查清单
+      options:
+        - label: 我已经阅读过 README
+          required: true
+        - label: 我已经搜索过现有的 Issue
+          required: true
