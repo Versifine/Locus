@@ -1,0 +1,360 @@
+# =============================================================================
+# LOCUS PROJECT .gitignore
+# Comprehensive ignore rules for Go project
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Go Language Specific
+# -----------------------------------------------------------------------------
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.txt
+coverage.html
+*.coverprofile
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Dependency directories
+vendor/
+
+# Build output
+/bin/
+/build/
+/dist/
+/out/
+*.o
+*.a
+
+# Delve debugger
+__debug_bin*
+
+# -----------------------------------------------------------------------------
+# IDE & Editors
+# -----------------------------------------------------------------------------
+# VSCode
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json.example
+*.code-workspace
+.history/
+
+# JetBrains IDEs (GoLand, IntelliJ IDEA, etc.)
+.idea/
+*.iml
+*.iws
+*.ipr
+.idea_modules/
+
+# Vim
+*.swp
+*.swo
+*~
+.*.swp
+.*.swo
+Session.vim
+.netrwhist
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Atom
+.atom/
+
+# Eclipse
+.classpath
+.project
+.settings/
+
+# -----------------------------------------------------------------------------
+# Operating Systems
+# -----------------------------------------------------------------------------
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+.directory
+.Trash-*
+.nfs*
+
+# -----------------------------------------------------------------------------
+# Logs & Databases
+# -----------------------------------------------------------------------------
+*.log
+*.log.*
+logs/
+*.sql
+*.sqlite
+*.sqlite3
+*.db
+
+# -----------------------------------------------------------------------------
+# Temporary Files
+# -----------------------------------------------------------------------------
+*.tmp
+*.temp
+*.bak
+*.cache
+*.pid
+*.seed
+*.pid.lock
+tmp/
+temp/
+.cache/
+
+# -----------------------------------------------------------------------------
+# Security & Secrets (CRITICAL)
+# -----------------------------------------------------------------------------
+# Environment variables
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+
+# Private keys and certificates
+*.pem
+*.key
+*.cert
+*.crt
+*.p12
+*.pfx
+*.cer
+*.der
+id_rsa
+id_rsa.pub
+*.asc
+*.gpg
+
+# Secrets and credentials
+secrets/
+secrets.yml
+secrets.yaml
+credentials.json
+auth.json
+*.credentials
+.secrets/
+
+# API keys and tokens
+*.token
+.token
+api_keys.txt
+
+# -----------------------------------------------------------------------------
+# Configuration (Potentially Sensitive)
+# -----------------------------------------------------------------------------
+# Keep example configs, ignore actual configs
+config.yml
+config.yaml
+config.json
+!config.example.yml
+!config.example.yaml
+!config.example.json
+!config.sample.*
+!config.template.*
+
+# Local configurations
+*.local
+local.yml
+local.yaml
+local.json
+
+# -----------------------------------------------------------------------------
+# CI/CD & Deployment
+# -----------------------------------------------------------------------------
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+
+# Docker
+docker-compose.override.yml
+.dockerignore.local
+
+# Kubernetes
+*.kubeconfig
+kubeconfig
+
+# -----------------------------------------------------------------------------
+# Documentation Build Artifacts
+# -----------------------------------------------------------------------------
+site/
+_site/
+.jekyll-cache/
+.jekyll-metadata
+docs/_build/
+docs/.buildinfo
+
+# -----------------------------------------------------------------------------
+# Package Managers & Dependencies
+# -----------------------------------------------------------------------------
+# Node.js (if using for tooling)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.yarn/
+package-lock.json
+yarn.lock
+.pnp.*
+
+# Python (if using for tooling)
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+venv/
+ENV/
+env/
+.venv
+
+# -----------------------------------------------------------------------------
+# Backup & Archives
+# -----------------------------------------------------------------------------
+*.backup
+*.bak
+*.old
+*.orig
+*.save
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+
+# -----------------------------------------------------------------------------
+# Project Specific
+# -----------------------------------------------------------------------------
+# Project management & personal configuration files
+AGENTS.md
+TASKS.md
+docs/PRD.md
+
+# Compiled plugins or addons
+/plugins/*.so
+/addons/*.so
+
+# Test data and fixtures
+/testdata/actual/
+/testdata/output/
+test_output/
+
+# Generated files
+*_gen.go
+*.pb.go
+*.mock.go
+wire_gen.go
+
+# Benchmark results
+bench.txt
+*.bench
+
+# Profiling data
+*.prof
+*.pprof
+cpu.prof
+mem.prof
+profile.out
+
+# Air (live reload) temp files
+tmp/
+
+# -----------------------------------------------------------------------------
+# Cloud & Remote Services
+# -----------------------------------------------------------------------------
+# AWS
+.aws/
+*.pem
+
+# GCP
+.gcp/
+*-key.json
+service-account*.json
+
+# Azure
+.azure/
+
+# -----------------------------------------------------------------------------
+# Miscellaneous
+# -----------------------------------------------------------------------------
+# Scratch/notes (personal files)
+scratch/
+notes/
+TODO.local
+NOTES.md.local
+
+# Large media files (unless tracked with Git LFS)
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.flv
+
+# Core dumps
+core
+core.*
+*.core
+*.dump
+
+# Lock files (OS level)
+.lock
+*.lock
+!go.sum
+
+# Patch files
+*.patch
+*.diff
+
+# =============================================================================
+# END OF .gitignore
+# =============================================================================
