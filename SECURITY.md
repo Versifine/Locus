@@ -27,7 +27,7 @@
    - 填写详细信息
 
 2. **邮件报告**
-   - 发送邮件至：security@example.com（请替换为实际邮箱）
+   - 发送邮件至：versifine@gmail.com
    - 邮件主题：`[SECURITY] Locus 安全漏洞报告`
 
 ### 报告应包含的信息
