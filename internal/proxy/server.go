@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"errors"
 	"io"
 	"log"
 	"net"
@@ -17,7 +18,7 @@ func NewServer(listenerAddr, backendAddr string) *Server {
 }
 
 func (s *Server) Start() error {
-	log.Printf("Starting proxy server on %s forwarding to %s", s.listenerAddr, s.backendAddr)
+	log.Printf("[START] Starting proxy server on %s forwarding to %s", s.listenerAddr, s.backendAddr)
 	netListener, err := net.Listen("tcp", s.listenerAddr)
 	if err != nil {
 		return err
@@ -49,7 +50,9 @@ func (s *Server) handleConnection(clientConn net.Conn) {
 		defer wg.Done()
 		_, err := io.Copy(dst, src)
 		if err != nil {
-			log.Printf("[ERROR] Error during data copy: %v", err)
+			if !errors.Is(err, net.ErrClosed) {
+				log.Printf("[ERROR] Error during data copy: %v", err)
+			}
 		}
 
 		dst.Close()
