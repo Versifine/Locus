@@ -15,6 +15,7 @@ func NewServer(listenerAddr, backendAddr string) *Server {
 }
 
 func (s *Server) Start() error {
+	fmt.Println("Starting proxy server on", s.listenerAddr, "forwarding to", s.backendAddr)
 	netListener, err := net.Listen("tcp", s.listenerAddr)
 	if err != nil {
 		return err

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 
 	"github.com/Versifine/locus/internal/config"
@@ -13,8 +14,8 @@ func main() {
 		log.Fatal("Error loading config:", err)
 	}
 	server := proxy.NewServer(
-		cfg.Listen.Host+":"+string(cfg.Listen.Port),
-		cfg.Backend.Host+":"+string(cfg.Backend.Port),
+		fmt.Sprintf("%s:%d", cfg.Listen.Host, cfg.Listen.Port),
+		fmt.Sprintf("%s:%d", cfg.Backend.Host, cfg.Backend.Port),
 	)
 	err = server.Start()
 	if err != nil {
