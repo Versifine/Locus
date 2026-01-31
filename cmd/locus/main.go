@@ -11,7 +11,7 @@ import (
 func main() {
 	cfg, err := config.Load("configs/config.yaml")
 	if err != nil {
-		log.Fatal("Error loading config:", err)
+		log.Fatal("[ERROR]Error loading config:", err)
 	}
 	server := proxy.NewServer(
 		fmt.Sprintf("%s:%d", cfg.Listen.Host, cfg.Listen.Port),
@@ -19,7 +19,7 @@ func main() {
 	)
 	err = server.Start()
 	if err != nil {
-		log.Fatal("Error starting server:", err)
+		log.Fatal("[ERROR]Error starting server:", err)
 	}
 
 }

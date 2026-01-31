@@ -1,8 +1,8 @@
 package proxy
 
 import (
-	"fmt"
 	"io"
+	"log"
 	"net"
 	"sync"
 )
@@ -17,7 +17,7 @@ func NewServer(listenerAddr, backendAddr string) *Server {
 }
 
 func (s *Server) Start() error {
-	fmt.Println("Starting proxy server on", s.listenerAddr, "forwarding to", s.backendAddr)
+	log.Printf("Starting proxy server on %s forwarding to %s", s.listenerAddr, s.backendAddr)
 	netListener, err := net.Listen("tcp", s.listenerAddr)
 	if err != nil {
 		return err
@@ -27,7 +27,7 @@ func (s *Server) Start() error {
 	for {
 		conn, err := netListener.Accept()
 		if err != nil {
-			fmt.Println("Error accepting connection:", err)
+			log.Printf("[ERROR] Error accepting connection: %v", err)
 			continue
 		}
 		go s.handleConnection(conn)
@@ -37,19 +37,19 @@ func (s *Server) Start() error {
 func (s *Server) handleConnection(clientConn net.Conn) {
 	backendConn, err := net.Dial("tcp", s.backendAddr)
 	if err != nil {
-		fmt.Println("Error connecting to backend:", err)
+		log.Printf("[ERROR] Error connecting to backend: %v", err)
 		clientConn.Close()
 		return
 	}
 	defer backendConn.Close()
-	fmt.Println("Proxying data between", clientConn.RemoteAddr(), "and backend", s.backendAddr)
+	log.Printf("[PROXY] %s <-> %s", clientConn.RemoteAddr(), s.backendAddr)
 	var wg sync.WaitGroup
 	wg.Add(2)
 	copyAndClose := func(dst, src net.Conn) {
 		defer wg.Done()
 		_, err := io.Copy(dst, src)
 		if err != nil {
-			fmt.Println("Error during data copy:", err)
+			log.Printf("[ERROR] Error during data copy: %v", err)
 		}
 
 		dst.Close()
@@ -58,5 +58,5 @@ func (s *Server) handleConnection(clientConn net.Conn) {
 	go copyAndClose(backendConn, clientConn)
 	go copyAndClose(clientConn, backendConn)
 	wg.Wait()
-	fmt.Println("Finished proxying for", clientConn.RemoteAddr())
+	log.Printf("[CLOSE] Connection closed: %s", clientConn.RemoteAddr())
 }
