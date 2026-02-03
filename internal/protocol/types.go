@@ -114,3 +114,14 @@ func ReadUnsignedShort(r io.Reader) (uint16, error) {
 	}
 	return binary.BigEndian.Uint16(buf[:]), nil
 }
+
+type UUID [16]byte
+
+func ReadUUID(r io.Reader) (UUID, error) {
+	var buf [16]byte
+	_, err := io.ReadFull(r, buf[:])
+	if err != nil {
+		return UUID{}, err
+	}
+	return UUID(buf), nil
+}

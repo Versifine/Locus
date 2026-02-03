@@ -725,3 +725,106 @@ func TestReadVarLongTooLong(t *testing.T) {
 		t.Errorf("ReadVarLong() 应该返回 ErrUnexpectedEOF，实际返回: %v", err)
 	}
 }
+
+// TestReadUUID 测试 ReadUUID 函数
+func TestReadUUID(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []byte
+		expected UUID
+		wantErr  bool
+	}{
+		{
+			name:     "全零UUID",
+			input:    make([]byte, 16),
+			expected: UUID{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+			wantErr:  false,
+		},
+		{
+			name: "标准UUID",
+			input: []byte{
+				0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+				0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
+			},
+			expected: UUID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10},
+			wantErr:  false,
+		},
+		{
+			name: "全FF的UUID",
+			input: []byte{
+				0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+				0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+			},
+			expected: UUID{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
+			wantErr:  false,
+		},
+		{
+			name:     "空输入-应该报错",
+			input:    []byte{},
+			expected: UUID{},
+			wantErr:  true,
+		},
+		{
+			name:     "不足16字节-应该报错",
+			input:    []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08},
+			expected: UUID{},
+			wantErr:  true,
+		},
+		{
+			name:     "只有1字节-应该报错",
+			input:    []byte{0x01},
+			expected: UUID{},
+			wantErr:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reader := bytes.NewReader(tt.input)
+			got, err := ReadUUID(reader)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("ReadUUID() 应该返回错误，但没有")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("ReadUUID() 返回错误: %v", err)
+			}
+
+			if got != tt.expected {
+				t.Errorf("ReadUUID() = %v, 期望 %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+// TestReadUUIDWithExtraData 测试读取UUID后是否正确消费了16字节
+func TestReadUUIDWithExtraData(t *testing.T) {
+	// 16字节UUID + 额外数据
+	input := []byte{
+		0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+		0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
+		0xAA, 0xBB, // 额外数据
+	}
+	reader := bytes.NewReader(input)
+
+	uuid, err := ReadUUID(reader)
+	if err != nil {
+		t.Fatalf("ReadUUID() 返回错误: %v", err)
+	}
+
+	expected := UUID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10}
+	if uuid != expected {
+		t.Errorf("ReadUUID() = %v, 期望 %v", uuid, expected)
+	}
+
+	// 检查剩余数据
+	remaining := make([]byte, 2)
+	n, _ := reader.Read(remaining)
+	if n != 2 || remaining[0] != 0xAA || remaining[1] != 0xBB {
+		t.Errorf("ReadUUID() 没有正确消费16字节，剩余数据不对")
+	}
+}
