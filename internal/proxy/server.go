@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"errors"
 	"io"
 	"log"
 	"net"
@@ -70,7 +71,7 @@ func relayPackets(src, dst net.Conn, tag string) error {
 	for {
 		packet, err := protocol.ReadPacket(src)
 		if err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				return nil
 			}
 			return err
