@@ -1,6 +1,6 @@
 package protocol
 
-import "bytes"
+import "io"
 
 type Handshake struct {
 	ProtocolVersion int32
@@ -9,21 +9,20 @@ type Handshake struct {
 	NextState       int32
 }
 
-func ParseHandshake(payload []byte) (*Handshake, error) {
-	payloadReader := bytes.NewReader(payload)
-	protocolVersion, err := ReadVarint(payloadReader)
+func ParseHandshake(r io.Reader) (*Handshake, error) {
+	protocolVersion, err := ReadVarint(r)
 	if err != nil {
 		return nil, err
 	}
-	serverAddress, err := ReadString(payloadReader)
+	serverAddress, err := ReadString(r)
 	if err != nil {
 		return nil, err
 	}
-	serverPortBytes, err := ReadUnsignedShort(payloadReader)
+	serverPortBytes, err := ReadUnsignedShort(r)
 	if err != nil {
 		return nil, err
 	}
-	nextState, err := ReadVarint(payloadReader)
+	nextState, err := ReadVarint(r)
 	if err != nil {
 		return nil, err
 	}

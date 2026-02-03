@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
 )
 
@@ -116,6 +117,10 @@ func ReadUnsignedShort(r io.Reader) (uint16, error) {
 }
 
 type UUID [16]byte
+
+func (u UUID) String() string {
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", u[0:4], u[4:6], u[6:8], u[8:10], u[10:16])
+}
 
 func ReadUUID(r io.Reader) (UUID, error) {
 	var buf [16]byte

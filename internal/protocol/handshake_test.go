@@ -105,7 +105,8 @@ func TestParseHandshake(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			payload := buildHandshakePayload(tt.protocolVersion, tt.serverAddress, tt.serverPort, tt.nextState)
 
-			handshake, err := ParseHandshake(payload)
+			reader := bytes.NewReader(payload)
+			handshake, err := ParseHandshake(reader)
 			if err != nil {
 				t.Fatalf("ParseHandshake() 返回错误: %v", err)
 			}
@@ -187,7 +188,8 @@ func TestParseHandshakeErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := ParseHandshake(tt.payload)
+			reader := bytes.NewReader(tt.payload)
+			_, err := ParseHandshake(reader)
 			if err == nil {
 				t.Errorf("ParseHandshake() 应该返回错误，但没有")
 			}
@@ -207,7 +209,8 @@ func TestParseHandshakeRealPacket(t *testing.T) {
 		0x01, // nextState = 1 (status)
 	}
 
-	handshake, err := ParseHandshake(payload)
+	reader := bytes.NewReader(payload)
+	handshake, err := ParseHandshake(reader)
 	if err != nil {
 		t.Fatalf("ParseHandshake() 返回错误: %v", err)
 	}
@@ -247,7 +250,8 @@ func TestParseHandshakeWithFMLMarker(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			payload := buildHandshakePayload(764, tt.serverAddress, 25565, 2)
 
-			handshake, err := ParseHandshake(payload)
+			reader := bytes.NewReader(payload)
+			handshake, err := ParseHandshake(reader)
 			if err != nil {
 				t.Fatalf("ParseHandshake() 返回错误: %v", err)
 			}
