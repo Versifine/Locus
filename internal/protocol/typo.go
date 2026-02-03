@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"encoding/binary"
 	"io"
 )
 
@@ -90,4 +91,26 @@ func WriteVarLong(w io.Writer, value int64) (err error) {
 		}
 	}
 	return
+}
+
+func ReadString(r io.Reader) (string, error) {
+	length, err := ReadVarint(r)
+	if err != nil {
+		return "", err
+	}
+	strBytes := make([]byte, length)
+	_, err = io.ReadFull(r, strBytes)
+	if err != nil {
+		return "", err
+	}
+	return string(strBytes), nil
+}
+
+func ReadUnsignedShort(r io.Reader) (uint16, error) {
+	var buf [2]byte
+	_, err := io.ReadFull(r, buf[:])
+	if err != nil {
+		return 0, err
+	}
+	return binary.BigEndian.Uint16(buf[:]), nil
 }
