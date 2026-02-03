@@ -1,11 +1,12 @@
 package proxy
 
 import (
-	"errors"
 	"io"
 	"log"
 	"net"
 	"sync"
+
+	"github.com/Versifine/locus/internal/protocol"
 )
 
 type Server struct {
@@ -46,20 +47,38 @@ func (s *Server) handleConnection(clientConn net.Conn) {
 	log.Printf("[PROXY] %s <-> %s", clientConn.RemoteAddr(), s.backendAddr)
 	var wg sync.WaitGroup
 	wg.Add(2)
-	copyAndClose := func(dst, src net.Conn) {
-		defer wg.Done()
-		_, err := io.Copy(dst, src)
-		if err != nil {
-			if !errors.Is(err, net.ErrClosed) {
-				log.Printf("[ERROR] Error during data copy: %v", err)
-			}
-		}
 
-		dst.Close()
-		src.Close()
-	}
-	go copyAndClose(backendConn, clientConn)
-	go copyAndClose(clientConn, backendConn)
+	go func() {
+		defer wg.Done()
+		err := relayPackets(clientConn, backendConn, "C->S")
+		if err != nil {
+			log.Printf("[ERROR] Error relaying packets C->S: %v", err)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		err := relayPackets(backendConn, clientConn, "S->C")
+		if err != nil {
+			log.Printf("[ERROR] Error relaying packets S->C: %v", err)
+		}
+	}()
 	wg.Wait()
 	log.Printf("[CLOSE] Connection closed: %s", clientConn.RemoteAddr())
+}
+
+func relayPackets(src, dst net.Conn, tag string) error {
+	for {
+		packet, err := protocol.ReadPacket(src)
+		if err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return err
+		}
+		log.Printf("[%s]Packet ID:0x%02X", tag, packet.ID)
+		if err := protocol.WritePacket(dst, packet); err != nil {
+			return err
+		}
+	}
+
 }
