@@ -20,8 +20,8 @@ func buildHandshakePayload(protocolVersion int32, serverAddress string, serverPo
 	return buf.Bytes()
 }
 
-// TestPerseHandShake 测试握手包解析
-func TestPerseHandShake(t *testing.T) {
+// TestParseHandshake 测试握手包解析
+func TestParseHandshake(t *testing.T) {
 	tests := []struct {
 		name            string
 		protocolVersion int32
@@ -105,9 +105,9 @@ func TestPerseHandShake(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			payload := buildHandshakePayload(tt.protocolVersion, tt.serverAddress, tt.serverPort, tt.nextState)
 
-			handshake, err := PerseHandShake(payload)
+			handshake, err := ParseHandshake(payload)
 			if err != nil {
-				t.Fatalf("PerseHandShake() 返回错误: %v", err)
+				t.Fatalf("ParseHandshake() 返回错误: %v", err)
 			}
 
 			if handshake.ProtocolVersion != tt.protocolVersion {
@@ -126,8 +126,8 @@ func TestPerseHandShake(t *testing.T) {
 	}
 }
 
-// TestPerseHandShakeErrors 测试错误情况
-func TestPerseHandShakeErrors(t *testing.T) {
+// TestParseHandshakeErrors 测试错误情况
+func TestParseHandshakeErrors(t *testing.T) {
 	tests := []struct {
 		name    string
 		payload []byte
@@ -141,7 +141,7 @@ func TestPerseHandShakeErrors(t *testing.T) {
 			payload: []byte{0xFC, 0x05}, // 764 的 varint 编码
 		},
 		{
-			name:    "缺少端口",
+			name: "缺少端口",
 			payload: func() []byte {
 				buf := &bytes.Buffer{}
 				WriteVarint(buf, 764)
@@ -151,7 +151,7 @@ func TestPerseHandShakeErrors(t *testing.T) {
 			}(),
 		},
 		{
-			name:    "缺少nextState",
+			name: "缺少nextState",
 			payload: func() []byte {
 				buf := &bytes.Buffer{}
 				WriteVarint(buf, 764)
@@ -163,7 +163,7 @@ func TestPerseHandShakeErrors(t *testing.T) {
 			}(),
 		},
 		{
-			name:    "端口不完整-只有一个字节",
+			name: "端口不完整-只有一个字节",
 			payload: func() []byte {
 				buf := &bytes.Buffer{}
 				WriteVarint(buf, 764)
@@ -174,7 +174,7 @@ func TestPerseHandShakeErrors(t *testing.T) {
 			}(),
 		},
 		{
-			name:    "字符串长度声明大于实际",
+			name: "字符串长度声明大于实际",
 			payload: func() []byte {
 				buf := &bytes.Buffer{}
 				WriteVarint(buf, 764)
@@ -187,29 +187,29 @@ func TestPerseHandShakeErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := PerseHandShake(tt.payload)
+			_, err := ParseHandshake(tt.payload)
 			if err == nil {
-				t.Errorf("PerseHandShake() 应该返回错误，但没有")
+				t.Errorf("ParseHandshake() 应该返回错误，但没有")
 			}
 		})
 	}
 }
 
-// TestPerseHandShakeRealPacket 测试真实的握手包数据
-func TestPerseHandShakeRealPacket(t *testing.T) {
+// TestParseHandshakeRealPacket 测试真实的握手包数据
+func TestParseHandshakeRealPacket(t *testing.T) {
 	// 模拟真实的 Minecraft 1.20.2 握手包
 	// Protocol: 764, Address: "localhost", Port: 25565, NextState: 1
 	payload := []byte{
 		0xFC, 0x05, // 764 (protocol version)
-		0x09,                                                       // string length = 9
-		'l', 'o', 'c', 'a', 'l', 'h', 'o', 's', 't',                 // "localhost"
+		0x09,                                        // string length = 9
+		'l', 'o', 'c', 'a', 'l', 'h', 'o', 's', 't', // "localhost"
 		0x63, 0xDD, // 25565 (port, big endian)
 		0x01, // nextState = 1 (status)
 	}
 
-	handshake, err := PerseHandShake(payload)
+	handshake, err := ParseHandshake(payload)
 	if err != nil {
-		t.Fatalf("PerseHandShake() 返回错误: %v", err)
+		t.Fatalf("ParseHandshake() 返回错误: %v", err)
 	}
 
 	if handshake.ProtocolVersion != 764 {
@@ -226,8 +226,8 @@ func TestPerseHandShakeRealPacket(t *testing.T) {
 	}
 }
 
-// TestPerseHandShakeWithFMLMarker 测试带有 Forge Mod Loader 标记的地址
-func TestPerseHandShakeWithFMLMarker(t *testing.T) {
+// TestParseHandshakeWithFMLMarker 测试带有 Forge Mod Loader 标记的地址
+func TestParseHandshakeWithFMLMarker(t *testing.T) {
 	// Forge 客户端会在地址后加上 \x00FML\x00 或类似标记
 	tests := []struct {
 		name          string
@@ -247,9 +247,9 @@ func TestPerseHandShakeWithFMLMarker(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			payload := buildHandshakePayload(764, tt.serverAddress, 25565, 2)
 
-			handshake, err := PerseHandShake(payload)
+			handshake, err := ParseHandshake(payload)
 			if err != nil {
-				t.Fatalf("PerseHandShake() 返回错误: %v", err)
+				t.Fatalf("ParseHandshake() 返回错误: %v", err)
 			}
 
 			if handshake.ServerAddress != tt.serverAddress {

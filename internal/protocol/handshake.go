@@ -2,14 +2,14 @@ package protocol
 
 import "bytes"
 
-type HandShake struct {
+type Handshake struct {
 	ProtocolVersion int32
 	ServerAddress   string
 	ServerPort      uint16
 	NextState       int32
 }
 
-func PerseHandShake(payload []byte) (*HandShake, error) {
+func ParseHandshake(payload []byte) (*Handshake, error) {
 	payloadReader := bytes.NewReader(payload)
 	protocolVersion, err := ReadVarint(payloadReader)
 	if err != nil {
@@ -28,7 +28,7 @@ func PerseHandShake(payload []byte) (*HandShake, error) {
 		return nil, err
 	}
 
-	return &HandShake{
+	return &Handshake{
 		ProtocolVersion: protocolVersion,
 		ServerAddress:   serverAddress,
 		ServerPort:      serverPortBytes,
