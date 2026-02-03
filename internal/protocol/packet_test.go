@@ -91,11 +91,8 @@ func TestReadPacket(t *testing.T) {
 			input: []byte{
 				0x00, // Length = 0
 			},
-			want: &Packet{
-				ID:      0,
-				Payload: []byte{},
-			},
-			wantErr: false,
+			want:    nil,
+			wantErr: true,
 		},
 	}
 

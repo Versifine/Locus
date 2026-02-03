@@ -15,13 +15,8 @@ func ReadPacket(r io.Reader) (*Packet, error) {
 	if err != nil {
 		return nil, err
 	}
-	if length == 0 {
-		return &Packet{
-			ID:      0,
-			Payload: nil,
-		}, nil
-	}
-	if length < 0 {
+
+	if length <= 0 {
 		return nil, io.ErrUnexpectedEOF
 	}
 	data := make([]byte, length)
