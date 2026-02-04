@@ -33,7 +33,7 @@ func TestProxyForwardsDataToBackend(t *testing.T) {
 		defer conn.Close()
 
 		_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
-		packet, err := protocol.ReadPacket(conn)
+		packet, err := protocol.ReadPacket(conn, -1)
 		if err != nil {
 			backendErrCh <- err
 			return
@@ -56,7 +56,7 @@ func TestProxyForwardsDataToBackend(t *testing.T) {
 		ID:      0x01, // 避免触发 Handshake 特殊解析逻辑
 		Payload: []byte("hello-backend"),
 	}
-	if err := protocol.WritePacket(clientConn, want); err != nil {
+	if err := protocol.WritePacket(clientConn, want, -1); err != nil {
 		t.Fatalf("客户端写入数据到 proxy 失败: %v", err)
 	}
 

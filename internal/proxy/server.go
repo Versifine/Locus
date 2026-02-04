@@ -54,7 +54,7 @@ func (s *Server) handleConnection(clientConn net.Conn) {
 	}
 
 	backendConn, err := net.Dial("tcp", s.backendAddr)
-	connState := &protocol.ConnState{}
+	connState := protocol.NewConnState()
 	connState.Set(protocol.Handshaking)
 
 	if err != nil {
@@ -93,13 +93,18 @@ func (s *Server) handleConnection(clientConn net.Conn) {
 
 func relayPackets(src, dst net.Conn, tag string, connState *protocol.ConnState) error {
 	for {
-		packet, err := protocol.ReadPacket(src)
+		// Read with current threshold
+		currentThreshold := connState.GetThreshold()
+		packet, err := protocol.ReadPacket(src, currentThreshold)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				return nil
 			}
 			return err
 		}
+
+		var newThreshold int = -2 // -2 means no change detected
+
 		switch connState.Get() {
 		case protocol.Handshaking:
 			if tag == "C->S" && packet.ID == 0x00 {
@@ -130,6 +135,17 @@ func relayPackets(src, dst net.Conn, tag string, connState *protocol.ConnState) 
 				}
 				slog.Info("Login start", "username", loginStart.Username, "uuid", loginStart.UUID.String())
 			}
+			if tag == "S->C" && packet.ID == 0x03 {
+				// Set Compression
+				packetRdr := bytes.NewReader(packet.Payload)
+				threshold, err := protocol.ReadVarint(packetRdr)
+				if err == nil {
+					newThreshold = int(threshold)
+					slog.Info("Compression enabled", "threshold", newThreshold)
+				} else {
+					slog.Error("Failed to parse compression threshold", "error", err)
+				}
+			}
 			if tag == "S->C" && packet.ID == 0x02 {
 				// Example: Handle login success packet if needed
 				// After login success, switch to Play state
@@ -142,8 +158,14 @@ func relayPackets(src, dst net.Conn, tag string, connState *protocol.ConnState) 
 			slog.Debug("Packet received", "tag", tag, "packetID", packet.ID)
 		}
 
-		if err := protocol.WritePacket(dst, packet); err != nil {
+		// Write with current (OLD) threshold
+		if err := protocol.WritePacket(dst, packet, currentThreshold); err != nil {
 			return err
+		}
+
+		// Apply new threshold AFTER writing the packet that enables it
+		if newThreshold != -2 {
+			connState.SetThreshold(newThreshold)
 		}
 	}
 }
