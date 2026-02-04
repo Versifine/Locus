@@ -275,6 +275,40 @@ func TestReadPacketError(t *testing.T) {
 	})
 }
 
+func TestReadPacketSemanticErrors(t *testing.T) {
+	t.Run("Length为0返回ErrInvalidPacket", func(t *testing.T) {
+		_, err := ReadPacket(bytes.NewReader([]byte{0x00}))
+		if !errors.Is(err, ErrInvalidPacket) {
+			t.Fatalf("expected ErrInvalidPacket, got %v", err)
+		}
+	})
+
+	t.Run("Length超过上限返回ErrPacketTooLarge", func(t *testing.T) {
+		buf := &bytes.Buffer{}
+		if err := WriteVarint(buf, 2097153); err != nil { // 2MB + 1
+			t.Fatalf("failed to build varint length: %v", err)
+		}
+
+		_, err := ReadPacket(bytes.NewReader(buf.Bytes()))
+		if !errors.Is(err, ErrPacketTooLarge) {
+			t.Fatalf("expected ErrPacketTooLarge, got %v", err)
+		}
+	})
+
+	t.Run("Length声明大于实际返回ErrInvalidPacket", func(t *testing.T) {
+		input := []byte{
+			0x10, // Length = 16
+			0x01, // PacketID = 1
+			0x48, // 数据不足
+		}
+
+		_, err := ReadPacket(bytes.NewReader(input))
+		if !errors.Is(err, ErrInvalidPacket) {
+			t.Fatalf("expected ErrInvalidPacket, got %v", err)
+		}
+	})
+}
+
 func TestWritePacketError(t *testing.T) {
 	t.Run("写入时出错", func(t *testing.T) {
 		w := &errorWriter{err: errors.New("write error")}

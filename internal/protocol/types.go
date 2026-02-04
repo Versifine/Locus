@@ -27,7 +27,7 @@ func ReadVarint(r io.Reader) (value int32, err error) {
 		}
 		position += 7
 		if position >= 32 {
-			err = io.ErrUnexpectedEOF
+			err = ErrVarIntTooLong
 			return
 		}
 	}
@@ -69,7 +69,7 @@ func ReadVarLong(r io.Reader) (value int64, err error) {
 		}
 		position += 7
 		if position >= 64 {
-			err = io.ErrUnexpectedEOF
+			err = ErrVarLongTooLong
 			return
 		}
 	}

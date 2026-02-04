@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"bytes"
+	"errors"
 	"io"
 )
 
@@ -17,11 +18,14 @@ func ReadPacket(r io.Reader) (*Packet, error) {
 	}
 
 	if length <= 0 {
-		return nil, io.ErrUnexpectedEOF
+		return nil, ErrInvalidPacket
+	}
+	if length > 2097152 { // Example maximum packet size (2MB)
+		return nil, ErrPacketTooLarge
 	}
 	data := make([]byte, length)
 	if _, err := io.ReadFull(r, data); err != nil {
-		return nil, err
+		return nil, errors.Join(ErrInvalidPacket, err)
 	}
 
 	buf := bytes.NewReader(data)

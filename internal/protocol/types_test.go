@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"testing"
 )
@@ -709,8 +710,8 @@ func TestReadVarintTooLong(t *testing.T) {
 	reader := bytes.NewReader(input)
 
 	_, err := ReadVarint(reader)
-	if err != io.ErrUnexpectedEOF {
-		t.Errorf("ReadVarint() 应该返回 ErrUnexpectedEOF，实际返回: %v", err)
+	if !errors.Is(err, ErrVarIntTooLong) {
+		t.Errorf("ReadVarint() 应该返回 ErrVarIntTooLong，实际返回: %v", err)
 	}
 }
 
@@ -721,8 +722,8 @@ func TestReadVarLongTooLong(t *testing.T) {
 	reader := bytes.NewReader(input)
 
 	_, err := ReadVarLong(reader)
-	if err != io.ErrUnexpectedEOF {
-		t.Errorf("ReadVarLong() 应该返回 ErrUnexpectedEOF，实际返回: %v", err)
+	if !errors.Is(err, ErrVarLongTooLong) {
+		t.Errorf("ReadVarLong() 应该返回 ErrVarLongTooLong，实际返回: %v", err)
 	}
 }
 
