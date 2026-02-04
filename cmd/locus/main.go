@@ -15,7 +15,7 @@ import (
 
 func main() {
 	logger.Init(logger.Config{
-		Level:     "debug",
+		Level:     "info",
 		Format:    "text",
 		AddSource: true,
 	})

@@ -152,8 +152,14 @@ func relayPackets(src, dst net.Conn, tag string, connState *protocol.ConnState) 
 				slog.Info("Login success, switching to Play state")
 				connState.Set(protocol.Play)
 			}
-		//case protocol.Play:
-		// Handle play state if needed
+		case protocol.Play:
+			// Handle play state if needed
+			if tag == "S->C" && packet.ID == 0x69 {
+				slog.Info("Keep Alive packet received in Play state")
+			}
+			if tag == "C->S" && packet.ID == 0x08 {
+				slog.Info("Sending Message")
+			}
 		default:
 			slog.Debug("Packet received", "tag", tag, "packetID", packet.ID)
 		}
