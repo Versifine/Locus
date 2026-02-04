@@ -48,6 +48,11 @@ func (s *Server) Start(ctx context.Context) error {
 }
 
 func (s *Server) handleConnection(clientConn net.Conn) {
+	// Disable Nagle's algorithm for lower latency
+	if tcpConn, ok := clientConn.(*net.TCPConn); ok {
+		_ = tcpConn.SetNoDelay(true)
+	}
+
 	backendConn, err := net.Dial("tcp", s.backendAddr)
 	connState := &protocol.ConnState{}
 	connState.Set(protocol.Handshaking)
@@ -57,6 +62,12 @@ func (s *Server) handleConnection(clientConn net.Conn) {
 		clientConn.Close()
 		return
 	}
+
+	// Disable Nagle's algorithm for backend connection too
+	if tcpConn, ok := backendConn.(*net.TCPConn); ok {
+		_ = tcpConn.SetNoDelay(true)
+	}
+
 	defer backendConn.Close()
 	slog.Info("Proxying connection", "client", clientConn.RemoteAddr(), "backend", s.backendAddr)
 	var wg sync.WaitGroup
@@ -128,7 +139,7 @@ func relayPackets(src, dst net.Conn, tag string, connState *protocol.ConnState) 
 		//case protocol.Play:
 		// Handle play state if needed
 		default:
-			slog.Info("Packet received", "tag", tag, "packetID", packet.ID)
+			slog.Debug("Packet received", "tag", tag, "packetID", packet.ID)
 		}
 
 		if err := protocol.WritePacket(dst, packet); err != nil {
