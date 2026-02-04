@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"log/slog"
@@ -20,19 +21,27 @@ func NewServer(listenerAddr, backendAddr string) *Server {
 	return &Server{listenerAddr: listenerAddr, backendAddr: backendAddr}
 }
 
-func (s *Server) Start() error {
+func (s *Server) Start(ctx context.Context) error {
 	slog.Info("Starting proxy server", "listenerAddr", s.listenerAddr, "backendAddr", s.backendAddr)
 	netListener, err := net.Listen("tcp", s.listenerAddr)
 	if err != nil {
 		return err
 	}
 	defer netListener.Close()
-	// Placeholder for accepting connections and proxying to backend
+	go func() {
+		<-ctx.Done()
+		slog.Info("Shutting down proxy server")
+		_ = netListener.Close()
+	}()
 	for {
 		conn, err := netListener.Accept()
 		if err != nil {
+			if ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
+				slog.Info("Proxy server stopped")
+				return nil
+			}
 			slog.Error("Error accepting connection", "error", err)
-			continue
+			return err
 		}
 		go s.handleConnection(conn)
 	}
