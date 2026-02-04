@@ -2,16 +2,25 @@ package main
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
+	"os"
 
 	"github.com/Versifine/locus/internal/config"
+	"github.com/Versifine/locus/internal/logger"
 	"github.com/Versifine/locus/internal/proxy"
 )
 
 func main() {
+	logger.Init(logger.Config{
+		Level:     "debug",
+		Format:    "text",
+		AddSource: true,
+	})
+
 	cfg, err := config.Load("configs/config.yaml")
 	if err != nil {
-		log.Fatal("[ERROR]Error loading config:", err)
+		slog.Error("failed to load config", "error", err)
+		os.Exit(1)
 	}
 	server := proxy.NewServer(
 		fmt.Sprintf("%s:%d", cfg.Listen.Host, cfg.Listen.Port),
@@ -19,7 +28,8 @@ func main() {
 	)
 	err = server.Start()
 	if err != nil {
-		log.Fatal("[ERROR]Error starting server:", err)
+		slog.Error("failed to start server", "error", err)
+		os.Exit(1)
 	}
 
 }

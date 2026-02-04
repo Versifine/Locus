@@ -6,6 +6,8 @@ import (
 	"io"
 )
 
+const MaxPacketSize = 2097152 // 2MB
+
 type Packet struct {
 	ID      int32
 	Payload []byte
@@ -20,7 +22,7 @@ func ReadPacket(r io.Reader) (*Packet, error) {
 	if length <= 0 {
 		return nil, ErrInvalidPacket
 	}
-	if length > 2097152 { // Example maximum packet size (2MB)
+	if length > MaxPacketSize { // Example maximum packet size (2MB)
 		return nil, ErrPacketTooLarge
 	}
 	data := make([]byte, length)
