@@ -82,6 +82,22 @@ func ParsePlayerChat(r io.Reader) (*PlayerChat, error) {
 		return nil, err
 	}
 	chat.Index = index
+
+	// Message Signature Present (Boolean)
+	hasSignature, err := ReadBool(r)
+	if err != nil {
+		return nil, err
+	}
+	// Message Signature (Optional, 256 bytes)
+	if hasSignature {
+		var sig [256]byte
+		_, err = io.ReadFull(r, sig[:])
+		if err != nil {
+			return nil, err
+		}
+		// 可以存储签名，但目前我们不需要
+	}
+
 	plainMessage, err := ReadString(r)
 	if err != nil {
 		return nil, err

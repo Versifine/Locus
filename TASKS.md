@@ -6,73 +6,19 @@
 
 ## In Progress
 
-### T021: 解析 Chat Message (C→S) 🔄
+### T023: Hook 机制框架 🔄
 
-> 解析客户端发送的聊天包，用于理解玩家意图
+> 实现简单的事件总线，解耦协议解析与业务逻辑
 
-**包 ID (Protocol 774)**：
-- `chat_message` = `0x08`
-- `chat_command` = `0x06`
-
-**参考结构**：
-**Chat Message (0x08)**
-- `message`: String (256)
-- `timestamp`: Long
-- `salt`: Long
-- `has_signature`: Boolean
-  - if true: `signature`: ByteArray[256] (定长)
-- `message_count`: VarInt
-- `acknowledged`: BitSet (Fixed 20 bits? check wiki) -> 可暂时跳过或读 ByteArray
-
-**Chat Command (0x06)**
-- `command`: String
-- `timestamp`: Long
-- `salt`: Long
-- `signature_count`: VarInt
-  - Loop: `name`: String, `signature`: ByteArray[256]
-- `message_count`: VarInt
-- `acknowledged`: BitSet
+**目标**：
+建立 `internal/event` 包，实现 Subscribe/Publish 模式。
 
 **步骤**：
-1. 新建 `internal/protocol/serverbound_chat.go`
-2. 实现 `ParseChatMessage` 和 `ParseChatCommand`
-3. Proxy 日志记录
-
----
-
-### T022: 解析 Player Chat Message (S→C) 🔄
-
-> 解析其他玩家发送的消息
-
-**包 ID (Protocol 774)**：
-- `player_chat` = `0x3f`
-
-**参考结构**：
-- `sender`: UUID
-- `index`: VarInt
-- `has_signature`: Boolean
-  - if true: `signature`: ByteArray[256]
-- `message`: String (原始内容)
-- `timestamp`: Long
-- `salt`: Long
-- `has_unsigned_content`: Boolean
-  - if true: `unsigned_content`: String (Component/JSON)
-- `filter_type`: VarInt
-  - if type == 2: `filter_mask`: BitSet
-- `chat_type`: VarInt
-- `network_name`: String (Json)
-- `has_target_name`: Boolean
-  - if true: `target_name`: String (Json)
-
-**简化策略**：
-- 只需要解析到 `message` (原始内容) 和 `unsigned_content` (显示内容) 即可。
-- 也就是解析前 7-8 个字段。
-- 剩余字段如果不需要，可以不读。
-
-**步骤**：
-1. 新建 `internal/protocol/player_chat.go`
-2. 实现 `ParsePlayerChat` (只读关键字段)
-3. Proxy 日志记录
+1. 新建 `internal/event/bus.go`：定义 `Event` 接口和 `Bus`
+2. 定义 `ChatEvent` (Serverbound/Clientbound)
+3. 在 `proxy.Server` 中集成 `Bus`
+4. 在 `relayPackets` 中触发事件（替代原本的 Log 输出）
+5. 创建 `internal/agent/agent.go` 作为消费者进行测试
 
 ---
 
@@ -83,7 +29,6 @@
 > 目标：实现聊天消息拦截、LLM 集成、AI 自动回复
 
 #### 聊天拦截
-- [ ] T023: Hook 机制框架
 - [ ] T024: 聊天拦截配置
 
 #### LLM 集成
@@ -101,24 +46,14 @@
 
 ### v0.3 - 聊天拦截（阶段性） ✅
 
+- [x] T022: 解析 Player Chat Message (S→C) ✅ (2026-02-06)
+- [x] T021: 解析 Chat Message (C→S) ✅ (2026-02-06)
 - [x] T020: 解析 System Chat Message (S→C) ✅ (2026-02-06)
-  - 自研 NBT 解析器 (internal/protocol/nbt.go)
-  - 解析 content (Anonymous NBT) + isActionBar
 - [x] T019: 抓包确认 1.21.11 聊天包 ID ✅ (2026-02-04)
-  - ProtocolVersion=774
-  - C→S `chat_message` = `0x08`
-  - C→S `chat_command` = `0x06`
-  - C→S `chat_command_signed` = `0x07`
-  - S→C `system_chat` = `0x77`
-  - S→C `player_chat` = `0x3f`
 
 ### v0.2.2 - 协议增强 ✅ (2026-02-04)
 
 - [x] T030: 实现协议压缩/解压支持 ✅ (2026-02-04)
-  - [x] 实现 zlib 压缩/解压工具
-  - [x] 改造 ReadPacket/WritePacket 支持阈值
-  - [x] Proxy 正确处理 Set Compression (0x03)
-  - [x] 禁用 Nagle 算法 (TCP_NODELAY) 修复延迟问题
 
 ### v0.1 - TCP 透明代理 ✅ (2026-01-31)
 

@@ -54,6 +54,7 @@ func buildPlayerChatPayload(
 	globalIndex int32,
 	senderUUID UUID,
 	index int32,
+	hasMessageSignature bool,
 	plainMessage string,
 	timestamp int64,
 	salt int64,
@@ -73,6 +74,15 @@ func buildPlayerChatPayload(
 	writeUUID(&buf, senderUUID)
 	// Index
 	writeVarInt(&buf, index)
+	// Message Signature Present (Boolean)
+	if hasMessageSignature {
+		buf.WriteByte(1)
+		// Message Signature (256 bytes)
+		sig := make([]byte, 256)
+		buf.Write(sig)
+	} else {
+		buf.WriteByte(0)
+	}
 	// PlainMessage
 	writeString(&buf, plainMessage)
 	// Timestamp
@@ -113,6 +123,7 @@ func TestParsePlayerChat_Basic(t *testing.T) {
 		1,             // globalIndex
 		uuid,          // senderUUID
 		0,             // index
+		false,         // hasMessageSignature
 		"Hello World", // plainMessage
 		1234567890,    // timestamp
 		9876543210,    // salt
