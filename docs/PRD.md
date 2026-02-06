@@ -110,6 +110,7 @@ R01 Mind Loop 的研究目标，本质上是在探索：**能否在代码中实�
 | 协议 | Minecraft Java Edition | 文档完善，社区资源多 |
 | 协议数据源 | minecraft-data (protocol.json) | 版本化、可追踪、便于查询包 ID |
 | **MC 版本** | **1.21.11 (Protocol 774)** | 当前服务器版本，稳定 |
+| **协议阶段** | **Login → Configuration → Play** | 1.20.2+ 新标准，Config 阶段处理 Registry |
 | 服务器模式 | 离线模式优先 | 简化开发，避免加密复杂度 |
 | 开发策略 | 代理模式 → Bot 模式 | 共享协议层，代理便于调试 |
 | 配置格式 | YAML | 人类友好 |

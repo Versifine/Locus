@@ -802,6 +802,108 @@ func TestReadUUID(t *testing.T) {
 	}
 }
 
+// TestUUIDString 测试 UUID 的字符串格式化
+func TestUUIDString(t *testing.T) {
+	tests := []struct {
+		name     string
+		uuid     UUID
+		expected string
+	}{
+		{
+			name:     "全零UUID",
+			uuid:     UUID{},
+			expected: "00000000-0000-0000-0000-000000000000",
+		},
+		{
+			name:     "标准UUID",
+			uuid:     UUID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10},
+			expected: "01020304-0506-0708-090a-0b0c0d0e0f10",
+		},
+		{
+			name:     "全FF的UUID",
+			uuid:     UUID{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
+			expected: "ffffffff-ffff-ffff-ffff-ffffffffffff",
+		},
+		{
+			name:     "Notch的UUID示例",
+			uuid:     UUID{0x06, 0x9a, 0x79, 0xf4, 0x44, 0xe9, 0x4b, 0x2c, 0x98, 0x30, 0xa5, 0x75, 0x26, 0x2d, 0x8c, 0x85},
+			expected: "069a79f4-44e9-4b2c-9830-a575262d8c85",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.uuid.String()
+			if got != tt.expected {
+				t.Errorf("UUID.String() = %q, 期望 %q", got, tt.expected)
+			}
+		})
+	}
+}
+
+// TestReadBool 测试 ReadBool 函数
+func TestReadBool(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []byte
+		expected bool
+		wantErr  bool
+	}{
+		{
+			name:     "false (0x00)",
+			input:    []byte{0x00},
+			expected: false,
+			wantErr:  false,
+		},
+		{
+			name:     "true (0x01)",
+			input:    []byte{0x01},
+			expected: true,
+			wantErr:  false,
+		},
+		{
+			name:     "非零值也为true (0xFF)",
+			input:    []byte{0xFF},
+			expected: true,
+			wantErr:  false,
+		},
+		{
+			name:     "非零值也为true (0x42)",
+			input:    []byte{0x42},
+			expected: true,
+			wantErr:  false,
+		},
+		{
+			name:     "空输入-应该报错",
+			input:    []byte{},
+			expected: false,
+			wantErr:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reader := bytes.NewReader(tt.input)
+			got, err := ReadBool(reader)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("ReadBool() 应该返回错误，但没有")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("ReadBool() 返回错误: %v", err)
+			}
+
+			if got != tt.expected {
+				t.Errorf("ReadBool() = %v, 期望 %v", got, tt.expected)
+			}
+		})
+	}
+}
+
 // TestReadUUIDWithExtraData 测试读取UUID后是否正确消费了16字节
 func TestReadUUIDWithExtraData(t *testing.T) {
 	// 16字节UUID + 额外数据
