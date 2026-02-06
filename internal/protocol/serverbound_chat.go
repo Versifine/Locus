@@ -5,11 +5,11 @@ import (
 )
 
 type ChatMessage struct {
-	ChatMessage string
-	Timestamp   int64
-	Salt        int64
-	Offset      int32
-	Checksum    byte
+	Message   string
+	Timestamp int64
+	Salt      int64
+	Offset    int32
+	Checksum  byte
 }
 
 func ParseChatMessage(r io.Reader) (*ChatMessage, error) {
@@ -18,7 +18,7 @@ func ParseChatMessage(r io.Reader) (*ChatMessage, error) {
 	if err != nil {
 		return nil, err
 	}
-	chat.ChatMessage = chatMessage
+	chat.Message = chatMessage
 
 	timestamp, err := ReadInt64(r)
 	if err != nil {

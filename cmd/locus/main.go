@@ -15,16 +15,17 @@ import (
 )
 
 func main() {
-	logger.Init(logger.Config{
-		Level:  "info",
-		Format: "console",
-	})
 
 	cfg, err := config.Load("configs/config.yaml")
+
 	if err != nil {
 		slog.Error("Failed to load config", "error", err)
 		os.Exit(1)
 	}
+	logger.Init(logger.Config{
+		Level:  cfg.Logging.Level,
+		Format: "console",
+	})
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	server := proxy.NewServer(

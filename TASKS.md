@@ -6,39 +6,85 @@
 
 ## In Progress
 
-### T023: Hook 机制框架 🔄
-
-> 实现简单的事件总线，解耦协议解析与业务逻辑
-
-**目标**：
-建立 `internal/event` 包，实现 Subscribe/Publish 模式。
-
-**步骤**：
-1. 新建 `internal/event/bus.go`：定义 `Event` 接口和 `Bus`
-2. 定义 `ChatEvent` (Serverbound/Clientbound)
-3. 在 `proxy.Server` 中集成 `Bus`
-4. 在 `relayPackets` 中触发事件（替代原本的 Log 输出）
-5. 创建 `internal/agent/agent.go` 作为消费者进行测试
+（无）
 
 ---
 
 ## Backlog
 
-### v0.3 - 聊天拦截 + LLM 集成
+### v0.3.1 - 代码质量治理
 
-> 目标：实现聊天消息拦截、LLM 集成、AI 自动回复
+> 目标：消除已知的安全隐患和可维护性问题
 
-#### 聊天拦截
-- [ ] T024: 聊天拦截配置
+#### T028: 安全与正确性修复
+> 修复 unsafe、连接泄漏、解析中断三个问题
 
-#### LLM 集成
-- [ ] T025: LLM 客户端封装（HTTP 调用 DeepSeek）
-- [ ] T026: LLM 配置（config.yaml）
+**步骤**：
+1. `nbt.go`：`float32FromBits` / `float64FromBits` 改用 `math.Float32frombits` / `math.Float64frombits`，删除 `unsafe` import
+2. `server.go handleConnection`：给 `clientConn` 加 `defer Close()`
+3. `server.go relayPackets` Play 状态：聊天包解析失败改为 `slog.Warn` + `continue`，不中断连接
+4. 单元测试验证
 
-#### 整合
-- [ ] T027: 聊天 Hook 实现（拦截 → LLM → 异步回复）
-- [ ] T028: 回复注入（构造 C→S 聊天包）
-- [ ] T029: 集成测试
+#### T029: relayPackets 拆分 + 包 ID 常量化
+> 降低 relayPackets 的认知复杂度，消灭魔术数字
+
+**步骤**：
+1. `protocol/` 新增包 ID 常量（按状态分组）
+2. `server.go`：按状态拆出 `handleHandshaking`、`handleLogin`、`handleConfiguration`、`handlePlay` 方法
+3. 所有包 ID 引用改为常量
+4. 验证功能不变
+
+#### T030: 日志配置生效 + 小修补
+> 把 config.yaml 的日志配置真正接上
+
+**步骤**：
+1. `main.go`：读取 `cfg.Logging.Level` 传入 `logger.Init`
+2. `serverbound_chat.go`：`ChatMessage.ChatMessage` → `ChatMessage.Message`，更新所有引用
+3. 验证
+
+---
+
+### v0.3 - LLM 集成 + 聊天回复
+
+> 目标：Agent 能监听聊天、调用 LLM、自动回复到游戏内
+
+#### T024: LLM 客户端 + 配置
+> 封装 DeepSeek API 调用，config.yaml 加 LLM 配置段
+
+**步骤**：
+1. `config.yaml` 加 `llm` 配置段（api_key, endpoint, model, system_prompt）
+2. `internal/config/config.go` 加 `LLMConfig` 结构体
+3. 新建 `internal/llm/client.go`：封装 HTTP 调用（OpenAI 兼容格式）
+4. 支持多轮对话（传入 messages 数组）
+5. 单元测试（mock HTTP）
+
+#### T025: 回复注入通道
+> 让 Agent 有能力往 server 连接写包
+
+**步骤**：
+1. 在 `proxy.Server` 中暴露一个 `SendToServer(packet)` 的写入通道
+2. 构造 C→S Chat Command 包（`/say` 或 `/msg`，用命令绕过签名）
+3. Agent 持有写入通道的引用
+4. 单元测试
+
+#### T026: 聊天 → LLM → 回复 串联
+> 完整闭环：收到玩家消息 → 调 LLM → 注入回复
+
+**步骤**：
+1. Agent 的 ChatEventHandler 中调用 LLM client
+2. 异步处理（goroutine），不阻塞事件总线
+3. LLM 返回后通过注入通道发送回复
+4. 过滤条件：只响应 SourcePlayer / SourcePlayerSend，忽略系统消息和自己的消息
+5. 手动测试验证完整链路
+
+#### T027: 端到端验收
+> v0.3 整体验收
+
+**步骤**：
+1. 连接真实 MC 服务器，玩家发消息，Agent 回复
+2. 验证异步不阻塞代理转发
+3. 验证 LLM 超时 / 失败时的降级处理
+4. 代码审查 + 提交
 
 ---
 
@@ -46,6 +92,7 @@
 
 ### v0.3 - 聊天拦截（阶段性） ✅
 
+- [x] T023: Hook 机制框架（事件总线 + Agent 消费者）✅ (2026-02-06)
 - [x] T022: 解析 Player Chat Message (S→C) ✅ (2026-02-06)
 - [x] T021: 解析 Chat Message (C→S) ✅ (2026-02-06)
 - [x] T020: 解析 System Chat Message (S→C) ✅ (2026-02-06)

@@ -1,6 +1,9 @@
 package event
 
-import "sync"
+import (
+	"log/slog"
+	"sync"
+)
 
 type HandlerFunc func(event any)
 
@@ -21,12 +24,20 @@ func (b *Bus) Subscribe(eventName string, handler HandlerFunc) {
 	b.handlers[eventName] = append(b.handlers[eventName], handler)
 }
 
-func (b *Bus) Publish(eventName string, event any) {
+func (b *Bus) Publish(eventName string, evt any) {
 	b.mu.RLock()
-	defer b.mu.RUnlock()
-	if handlers, found := b.handlers[eventName]; found {
-		for _, handler := range handlers {
-			handler(event)
-		}
+	handlers := make([]HandlerFunc, len(b.handlers[eventName]))
+	copy(handlers, b.handlers[eventName])
+	b.mu.RUnlock()
+
+	for _, handler := range handlers {
+		go func(h HandlerFunc) {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("Event handler panicked", "event", eventName, "panic", r)
+				}
+			}()
+			h(evt)
+		}(handler)
 	}
 }

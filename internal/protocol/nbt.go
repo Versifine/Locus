@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"unsafe"
+	"math"
 )
 
 const (
@@ -191,7 +191,7 @@ func ReadFloat32(r io.Reader) (float32, error) {
 		return 0, err
 	}
 	bits := binary.BigEndian.Uint32(buf[:])
-	return float32FromBits(bits), nil
+	return math.Float32frombits(bits), nil
 }
 
 func ReadFloat64(r io.Reader) (float64, error) {
@@ -201,13 +201,7 @@ func ReadFloat64(r io.Reader) (float64, error) {
 		return 0, err
 	}
 	bits := binary.BigEndian.Uint64(buf[:])
-	return float64FromBits(bits), nil
-}
-func float32FromBits(bits uint32) float32 {
-	return *(*float32)(unsafe.Pointer(&bits))
-}
-func float64FromBits(bits uint64) float64 {
-	return *(*float64)(unsafe.Pointer(&bits))
+	return math.Float64frombits(bits), nil
 }
 
 func ReadNBTByteArray(r io.Reader) ([]byte, error) {

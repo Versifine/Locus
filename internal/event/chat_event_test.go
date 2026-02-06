@@ -66,18 +66,6 @@ func TestNewChatEventAllSources(t *testing.T) {
 	}
 }
 
-// TestChatEventHandler 测试聊天事件处理器不会 panic
-func TestChatEventHandler(t *testing.T) {
-	// 正确类型的事件
-	event := NewChatEvent("Steve", protocol.UUID{}, "Hello", SourcePlayer)
-	ChatEventHandler(event) // 不应该 panic
-
-	// 错误类型的事件也不应该 panic
-	ChatEventHandler("not a chat event")
-	ChatEventHandler(nil)
-	ChatEventHandler(42)
-}
-
 // TestSourceTypeIotaValues 测试 SourceType 枚举值的顺序
 func TestSourceTypeIotaValues(t *testing.T) {
 	if SourceSystem != 0 {

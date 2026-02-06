@@ -1,10 +1,11 @@
 package event
 
 import (
-	"log/slog"
-
 	"github.com/Versifine/locus/internal/protocol"
 )
+
+// EventChat 聊天事件名称常量
+const EventChat = "chat"
 
 type SourceType int
 
@@ -35,16 +36,6 @@ type ChatEvent struct {
 	UUID     protocol.UUID
 	Message  string
 	Source   SourceType
-}
-
-func ChatEventHandler(event any) {
-	chatEvent, ok := event.(*ChatEvent)
-	if !ok {
-		slog.Error("Invalid event type for ChatEventHandler")
-		return
-	}
-	// 在这里处理聊天事件，例如记录日志或修改消息内容
-	slog.Info("Chat event", "username", chatEvent.Username, "uuid", chatEvent.UUID.String(), "message", chatEvent.Message, "source", chatEvent.Source.String())
 }
 
 func NewChatEvent(username string, uuid protocol.UUID, message string, source SourceType) *ChatEvent {
