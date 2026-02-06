@@ -15,14 +15,13 @@ import (
 
 func main() {
 	logger.Init(logger.Config{
-		Level:     "debug",
-		Format:    "text",
-		AddSource: true,
+		Level:  "info",
+		Format: "console",
 	})
 
 	cfg, err := config.Load("configs/config.yaml")
 	if err != nil {
-		slog.Error("failed to load config", "error", err)
+		slog.Error("Failed to load config", "error", err)
 		os.Exit(1)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -33,7 +32,7 @@ func main() {
 	)
 	err = server.Start(ctx)
 	if err != nil {
-		slog.Error("failed to start server", "error", err)
+		slog.Error("Failed to start server", "error", err)
 		os.Exit(1)
 	}
 

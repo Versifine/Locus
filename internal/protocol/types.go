@@ -130,3 +130,12 @@ func ReadUUID(r io.Reader) (UUID, error) {
 	}
 	return UUID(buf), nil
 }
+
+func ReadBool(r io.Reader) (bool, error) {
+	var buf [1]byte
+	_, err := io.ReadFull(r, buf[:])
+	if err != nil {
+		return false, err
+	}
+	return buf[0] != 0, nil
+}

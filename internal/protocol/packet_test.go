@@ -6,6 +6,8 @@ import (
 	"testing"
 )
 
+const noCompressionThreshold = -1
+
 func TestReadPacket(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -99,7 +101,7 @@ func TestReadPacket(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := bytes.NewReader(tt.input)
-			got, err := ReadPacket(r)
+			got, err := ReadPacket(r, noCompressionThreshold)
 
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ReadPacket() error = %v, wantErr %v", err, tt.wantErr)
@@ -184,7 +186,7 @@ func TestWritePacket(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var buf bytes.Buffer
-			err := WritePacket(&buf, tt.packet)
+			err := WritePacket(&buf, tt.packet, noCompressionThreshold)
 
 			if (err != nil) != tt.wantErr {
 				t.Errorf("WritePacket() error = %v, wantErr %v", err, tt.wantErr)
@@ -244,12 +246,12 @@ func TestReadWritePacketRoundTrip(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// 写入
 			var buf bytes.Buffer
-			if err := WritePacket(&buf, tt.packet); err != nil {
+			if err := WritePacket(&buf, tt.packet, noCompressionThreshold); err != nil {
 				t.Fatalf("WritePacket() error = %v", err)
 			}
 
 			// 读取
-			got, err := ReadPacket(&buf)
+			got, err := ReadPacket(&buf, noCompressionThreshold)
 			if err != nil {
 				t.Fatalf("ReadPacket() error = %v", err)
 			}
@@ -268,7 +270,7 @@ func TestReadWritePacketRoundTrip(t *testing.T) {
 func TestReadPacketError(t *testing.T) {
 	t.Run("读取时出错", func(t *testing.T) {
 		r := &errorReader{err: errors.New("read error")}
-		_, err := ReadPacket(r)
+		_, err := ReadPacket(r, noCompressionThreshold)
 		if err == nil {
 			t.Error("ReadPacket() expected error, got nil")
 		}
@@ -277,7 +279,7 @@ func TestReadPacketError(t *testing.T) {
 
 func TestReadPacketSemanticErrors(t *testing.T) {
 	t.Run("Length为0返回ErrInvalidPacket", func(t *testing.T) {
-		_, err := ReadPacket(bytes.NewReader([]byte{0x00}))
+		_, err := ReadPacket(bytes.NewReader([]byte{0x00}), noCompressionThreshold)
 		if !errors.Is(err, ErrInvalidPacket) {
 			t.Fatalf("expected ErrInvalidPacket, got %v", err)
 		}
@@ -289,7 +291,7 @@ func TestReadPacketSemanticErrors(t *testing.T) {
 			t.Fatalf("failed to build varint length: %v", err)
 		}
 
-		_, err := ReadPacket(bytes.NewReader(buf.Bytes()))
+		_, err := ReadPacket(bytes.NewReader(buf.Bytes()), noCompressionThreshold)
 		if !errors.Is(err, ErrPacketTooLarge) {
 			t.Fatalf("expected ErrPacketTooLarge, got %v", err)
 		}
@@ -302,7 +304,7 @@ func TestReadPacketSemanticErrors(t *testing.T) {
 			0x48, // 数据不足
 		}
 
-		_, err := ReadPacket(bytes.NewReader(input))
+		_, err := ReadPacket(bytes.NewReader(input), noCompressionThreshold)
 		if !errors.Is(err, ErrInvalidPacket) {
 			t.Fatalf("expected ErrInvalidPacket, got %v", err)
 		}
@@ -313,7 +315,7 @@ func TestWritePacketError(t *testing.T) {
 	t.Run("写入时出错", func(t *testing.T) {
 		w := &errorWriter{err: errors.New("write error")}
 		packet := &Packet{ID: 1, Payload: []byte("test")}
-		err := WritePacket(w, packet)
+		err := WritePacket(w, packet, noCompressionThreshold)
 		if err == nil {
 			t.Error("WritePacket() expected error, got nil")
 		}
@@ -350,14 +352,14 @@ func TestMultiplePackets(t *testing.T) {
 
 	// 写入所有包
 	for _, p := range packets {
-		if err := WritePacket(&buf, p); err != nil {
+		if err := WritePacket(&buf, p, noCompressionThreshold); err != nil {
 			t.Fatalf("WritePacket() error = %v", err)
 		}
 	}
 
 	// 读取所有包
 	for i, want := range packets {
-		got, err := ReadPacket(&buf)
+		got, err := ReadPacket(&buf, noCompressionThreshold)
 		if err != nil {
 			t.Fatalf("ReadPacket() packet %d error = %v", i, err)
 		}
@@ -385,7 +387,7 @@ func BenchmarkReadPacket(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		r := bytes.NewReader(data)
-		ReadPacket(r)
+		ReadPacket(r, noCompressionThreshold)
 	}
 }
 
@@ -398,6 +400,6 @@ func BenchmarkWritePacket(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		var buf bytes.Buffer
-		WritePacket(&buf, packet)
+		WritePacket(&buf, packet, noCompressionThreshold)
 	}
 }
