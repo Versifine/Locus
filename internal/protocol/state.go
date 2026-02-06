@@ -13,9 +13,32 @@ const (
 )
 
 type ConnState struct {
-	mu        sync.Mutex
+	mu        sync.RWMutex
 	state     State
 	threshold int
+	username  string
+	uuid      UUID
+}
+
+func (cs *ConnState) Username() string {
+	cs.mu.RLock()
+	defer cs.mu.RUnlock()
+	return cs.username
+}
+func (cs *ConnState) SetUsername(username string) {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	cs.username = username
+}
+func (cs *ConnState) UUID() UUID {
+	cs.mu.RLock()
+	defer cs.mu.RUnlock()
+	return cs.uuid
+}
+func (cs *ConnState) SetUUID(uuid UUID) {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	cs.uuid = uuid
 }
 
 func NewConnState() *ConnState {
@@ -31,8 +54,8 @@ func (cs *ConnState) Set(state State) {
 }
 
 func (cs *ConnState) Get() State {
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
+	cs.mu.RLock()
+	defer cs.mu.RUnlock()
 	return cs.state
 }
 
@@ -43,7 +66,7 @@ func (cs *ConnState) SetThreshold(t int) {
 }
 
 func (cs *ConnState) GetThreshold() int {
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
+	cs.mu.RLock()
+	defer cs.mu.RUnlock()
 	return cs.threshold
 }

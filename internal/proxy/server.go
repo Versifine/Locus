@@ -10,16 +10,22 @@ import (
 	"net"
 	"sync"
 
+	"github.com/Versifine/locus/internal/event"
 	"github.com/Versifine/locus/internal/protocol"
 )
 
 type Server struct {
 	listenerAddr string
 	backendAddr  string
+	eventBus     *event.Bus
 }
 
 func NewServer(listenerAddr, backendAddr string) *Server {
-	return &Server{listenerAddr: listenerAddr, backendAddr: backendAddr}
+	return &Server{listenerAddr: listenerAddr, backendAddr: backendAddr, eventBus: event.NewBus()}
+}
+
+func (s *Server) Bus() *event.Bus {
+	return s.eventBus
 }
 
 func (s *Server) Start(ctx context.Context) error {
@@ -29,6 +35,7 @@ func (s *Server) Start(ctx context.Context) error {
 		return err
 	}
 	defer netListener.Close()
+
 	go func() {
 		<-ctx.Done()
 		slog.Info("Proxy server shutting down")
@@ -76,14 +83,14 @@ func (s *Server) handleConnection(clientConn net.Conn) {
 
 	go func() {
 		defer wg.Done()
-		err := relayPackets(clientConn, backendConn, "C->S", connState)
+		err := s.relayPackets(clientConn, backendConn, "C->S", connState)
 		if err != nil {
 			slog.Error("Relay error", "dir", "C->S", "error", err)
 		}
 	}()
 	go func() {
 		defer wg.Done()
-		err := relayPackets(backendConn, clientConn, "S->C", connState)
+		err := s.relayPackets(backendConn, clientConn, "S->C", connState)
 		if err != nil {
 			slog.Error("Relay error", "dir", "S->C", "error", err)
 		}
@@ -92,7 +99,7 @@ func (s *Server) handleConnection(clientConn net.Conn) {
 	slog.Info("Connection closed", "client", clientConn.RemoteAddr())
 }
 
-func relayPackets(src, dst net.Conn, tag string, connState *protocol.ConnState) error {
+func (s *Server) relayPackets(src, dst net.Conn, tag string, connState *protocol.ConnState) error {
 	for {
 		// Read with current threshold
 		currentThreshold := connState.GetThreshold()
@@ -132,6 +139,8 @@ func relayPackets(src, dst net.Conn, tag string, connState *protocol.ConnState) 
 				if err != nil {
 					return err
 				}
+				connState.SetUsername(loginStart.Username)
+				connState.SetUUID(loginStart.UUID)
 				slog.Info("Login start", "username", loginStart.Username, "uuid", loginStart.UUID.String())
 			}
 			if tag == "S->C" && packet.ID == 0x03 {
@@ -146,7 +155,14 @@ func relayPackets(src, dst net.Conn, tag string, connState *protocol.ConnState) 
 				}
 			}
 			if tag == "S->C" && packet.ID == 0x02 {
-				slog.Info("Login success, entering Configuration state")
+				packetRdr := bytes.NewReader(packet.Payload)
+				loginSuccess, err := protocol.ParseLoginSuccess(packetRdr)
+				if err != nil {
+					return err
+				}
+				connState.SetUUID(loginSuccess.UUID)
+				connState.SetUsername(loginSuccess.Username)
+				slog.Info("Login success, entering Configuration state", "username", loginSuccess.Username, "uuid", loginSuccess.UUID.String())
 				connState.Set(protocol.Configuration)
 			}
 		case protocol.Configuration:
@@ -164,7 +180,7 @@ func relayPackets(src, dst net.Conn, tag string, connState *protocol.ConnState) 
 				if err != nil {
 					return err
 				}
-				slog.Info("Player chat message", "content", playerChat.PlainMessage, "timestamp", playerChat.Timestamp, "salt", playerChat.Salt)
+				s.eventBus.Publish("chat", event.NewChatEvent(protocol.FormatTextComponent(playerChat.NetworkName), playerChat.SenderUUID, playerChat.PlainMessage, event.SourcePlayer))
 			}
 			if tag == "S->C" && packet.ID == 0x77 {
 				packetRdr := bytes.NewReader(packet.Payload)
@@ -172,15 +188,16 @@ func relayPackets(src, dst net.Conn, tag string, connState *protocol.ConnState) 
 				if err != nil {
 					return err
 				}
-				slog.Info("System chat", "content", protocol.FormatTextComponent(&systemChat.Content), "action_bar", systemChat.IsActionBar)
+				s.eventBus.Publish("chat", event.NewChatEvent("SYSTEM", protocol.UUID{}, protocol.FormatTextComponent(&systemChat.Content), event.SourceSystem))
 			}
+			// Chat Message (C->S 0x08, Chat Command (C->S 0x06), Chat Command Signed (C->S 0x07)
 			if tag == "C->S" && packet.ID == 0x08 {
 				packetRdr := bytes.NewReader(packet.Payload)
 				chatMsg, err := protocol.ParseChatMessage(packetRdr)
 				if err != nil {
 					return err
 				}
-				slog.Info("Chat message", "message", chatMsg.ChatMessage, "timestamp", chatMsg.Timestamp, "salt", chatMsg.Salt)
+				s.eventBus.Publish("chat", event.NewChatEvent(connState.Username(), connState.UUID(), chatMsg.ChatMessage, event.SourcePlayerSend))
 			}
 			if tag == "C->S" && packet.ID == 0x06 {
 				packetRdr := bytes.NewReader(packet.Payload)
@@ -188,7 +205,8 @@ func relayPackets(src, dst net.Conn, tag string, connState *protocol.ConnState) 
 				if err != nil {
 					return err
 				}
-				slog.Info("Chat command", "command", chatCmd.Command)
+				s.eventBus.Publish("chat", event.NewChatEvent(connState.Username(), connState.UUID(), chatCmd.Command, event.SourcePlayerCmd))
+
 			}
 			if tag == "C->S" && packet.ID == 0x07 {
 				packetRdr := bytes.NewReader(packet.Payload)
@@ -196,7 +214,8 @@ func relayPackets(src, dst net.Conn, tag string, connState *protocol.ConnState) 
 				if err != nil {
 					return err
 				}
-				slog.Info("Signed chat command", "command", chatCmdSigned.Command)
+				s.eventBus.Publish("chat", event.NewChatEvent(connState.Username(), connState.UUID(), chatCmdSigned.Command, event.SourcePlayerCmd))
+
 			}
 		default:
 			slog.Debug("Packet", "dir", tag, "id", fmt.Sprintf("0x%02x", packet.ID))
