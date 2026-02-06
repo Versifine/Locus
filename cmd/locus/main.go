@@ -15,12 +15,12 @@ import (
 )
 
 func main() {
-	logger.Init(logger.Config{
-		Level:  "info",
-		Format: "console",
-	})
 
 	cfg, err := config.Load("configs/config.yaml")
+	logger.Init(logger.Config{
+		Level:  cfg.Logging.Level,
+		Format: "console",
+	})
 	if err != nil {
 		slog.Error("Failed to load config", "error", err)
 		os.Exit(1)

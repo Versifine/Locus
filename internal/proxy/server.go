@@ -57,6 +57,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 func (s *Server) handleConnection(clientConn net.Conn) {
 	// Disable Nagle's algorithm for lower latency
+	defer clientConn.Close()
 	if tcpConn, ok := clientConn.(*net.TCPConn); ok {
 		_ = tcpConn.SetNoDelay(true)
 	}
@@ -178,7 +179,8 @@ func (s *Server) relayPackets(src, dst net.Conn, tag string, connState *protocol
 				packetRdr := bytes.NewReader(packet.Payload)
 				playerChat, err := protocol.ParsePlayerChat(packetRdr)
 				if err != nil {
-					return err
+					slog.Warn("Failed to parse Player Chat", "error", err)
+					continue
 				}
 				s.eventBus.Publish(event.EventChat, event.NewChatEvent(protocol.FormatTextComponent(playerChat.NetworkName), playerChat.SenderUUID, playerChat.PlainMessage, event.SourcePlayer))
 			}
@@ -186,7 +188,8 @@ func (s *Server) relayPackets(src, dst net.Conn, tag string, connState *protocol
 				packetRdr := bytes.NewReader(packet.Payload)
 				systemChat, err := protocol.ParseSystemChat(packetRdr)
 				if err != nil {
-					return err
+					slog.Warn("Failed to parse System Chat", "error", err)
+					continue
 				}
 				s.eventBus.Publish(event.EventChat, event.NewChatEvent("SYSTEM", protocol.UUID{}, protocol.FormatTextComponent(&systemChat.Content), event.SourceSystem))
 			}
@@ -195,7 +198,8 @@ func (s *Server) relayPackets(src, dst net.Conn, tag string, connState *protocol
 				packetRdr := bytes.NewReader(packet.Payload)
 				chatMsg, err := protocol.ParseChatMessage(packetRdr)
 				if err != nil {
-					return err
+					slog.Warn("Failed to parse Chat Message", "error", err)
+					continue
 				}
 				s.eventBus.Publish(event.EventChat, event.NewChatEvent(connState.Username(), connState.UUID(), chatMsg.ChatMessage, event.SourcePlayerSend))
 			}
@@ -203,7 +207,8 @@ func (s *Server) relayPackets(src, dst net.Conn, tag string, connState *protocol
 				packetRdr := bytes.NewReader(packet.Payload)
 				chatCmd, err := protocol.ParseChatCommand(packetRdr)
 				if err != nil {
-					return err
+					slog.Warn("Failed to parse Chat Command", "error", err)
+					continue
 				}
 				s.eventBus.Publish(event.EventChat, event.NewChatEvent(connState.Username(), connState.UUID(), chatCmd.Command, event.SourcePlayerCmd))
 
@@ -212,7 +217,8 @@ func (s *Server) relayPackets(src, dst net.Conn, tag string, connState *protocol
 				packetRdr := bytes.NewReader(packet.Payload)
 				chatCmdSigned, err := protocol.ParseChatCommandSigned(packetRdr)
 				if err != nil {
-					return err
+					slog.Warn("Failed to parse Chat Command Signed", "error", err)
+					continue
 				}
 				s.eventBus.Publish(event.EventChat, event.NewChatEvent(connState.Username(), connState.UUID(), chatCmdSigned.Command, event.SourcePlayerCmd))
 
