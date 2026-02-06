@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -154,14 +155,30 @@ func relayPackets(src, dst net.Conn, tag string, connState *protocol.ConnState) 
 			}
 		case protocol.Play:
 			// Handle play state if needed
-			if tag == "S->C" && packet.ID == 0x69 {
-				slog.Info("Keep Alive packet received in Play state")
+			if tag == "S->C" && packet.ID == 0x3f {
+				slog.Info("S->C player_chat:", "packetID", fmt.Sprintf("0x%02x", packet.ID))
 			}
+			if tag == "S->C" && packet.ID == 0x77 {
+				packetRdr := bytes.NewReader(packet.Payload)
+				systemChat, err := protocol.ParseSystemChat(packetRdr)
+				if err != nil {
+					return err
+				}
+				slog.Info("S->C system_chat:", "content", systemChat.Content.String(), "isActionBar", systemChat.IsActionBar)
+			}
+
 			if tag == "C->S" && packet.ID == 0x08 {
-				slog.Info("Sending Message")
+				slog.Info("C->S chat_message", "packetID", fmt.Sprintf("0x%02x", packet.ID))
 			}
+			if tag == "C->S" && packet.ID == 0x06 {
+				slog.Info("C->S chat_command", "packetID", fmt.Sprintf("0x%02x", packet.ID))
+			}
+			if tag == "C->S" && packet.ID == 0x07 {
+				slog.Info("C->S chat_command_signed", "packetID", fmt.Sprintf("0x%02x", packet.ID))
+			}
+
 		default:
-			slog.Debug("Packet received", "tag", tag, "packetID", packet.ID)
+			slog.Debug("Packet received", "tag", tag, "packetID", fmt.Sprintf("0x%02x", packet.ID))
 		}
 
 		// Write with current (OLD) threshold

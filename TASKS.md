@@ -6,19 +6,24 @@
 
 ## In Progress
 
-### T019: 抓包确认 1.21.x 聊天包 ID 🔄
+### T020: 解析 System Chat Message (S→C) 🔄
 
-> 用现有 proxy 抓包，确认 1.21.x (Protocol 768) 聊天相关包的实际 ID
-> **前提**：现在 Proxy 已支持压缩，可以正常解析 Play 状态包。
+> 解析并结构化 `system_chat` 包，为后续 Hook 做准备
+
+**已确认包 ID (Protocol 774)**：
+- `system_chat` = `0x77`
+
+**包结构 (参考 1.21.9 / 预计一致)**：
+- `content`: anonymousNbt
+- `isActionBar`: bool
 
 **步骤**：
-1. 启动 proxy，连接服务器
-2. 进入游戏，发送几条聊天消息
-3. 观察日志，记录 Play 状态下收到的包 ID
-4. 对比协议文档，确认：
-   - System Chat Message (S→C)
-   - Chat Message (C→S)
-   - Player Chat Message (S→C)
+1. 在 `internal/protocol/types.go` 增加 `ReadBool`
+2. 新建 `internal/protocol/nbt.go`：自研 NBT 解析器（支持匿名根标签）
+3. 新建 `internal/protocol/system_chat.go`（`SystemChat` + `ParseSystemChat`）
+4. 解析 `content`（anonymousNbt）并转为可读格式（最少能打印文本/结构）
+5. 读取 `isActionBar`，在 Proxy Play 状态记录日志（只打印，不改包）
+6. 手动测试：聊天 + /help，确认日志输出内容
 
 ---
 
@@ -47,6 +52,16 @@
 ---
 
 ## Done
+
+### v0.3 - 聊天拦截（阶段性） ✅
+
+- [x] T019: 抓包确认 1.21.11 聊天包 ID ✅ (2026-02-04)
+  - ProtocolVersion=774
+  - C→S `chat_message` = `0x08`
+  - C→S `chat_command` = `0x06`
+  - C→S `chat_command_signed` = `0x07`
+  - S→C `system_chat` = `0x77`
+  - S→C `player_chat` = `0x3f`
 
 ### v0.2.2 - 协议增强 ✅ (2026-02-04)
 
