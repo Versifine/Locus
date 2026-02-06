@@ -67,8 +67,8 @@ func TestParseChatMessage(t *testing.T) {
 				t.Fatalf("ParseChatMessage() 返回错误: %v", err)
 			}
 
-			if chat.ChatMessage != tt.message {
-				t.Errorf("ChatMessage = %q, 期望 %q", chat.ChatMessage, tt.message)
+			if chat.Message != tt.message {
+				t.Errorf("Message = %q, 期望 %q", chat.Message, tt.message)
 			}
 			if chat.Timestamp != tt.timestamp {
 				t.Errorf("Timestamp = %d, 期望 %d", chat.Timestamp, tt.timestamp)
