@@ -8,6 +8,7 @@ const (
 	Handshaking State = iota
 	Status
 	Login
+	Configuration // 1.20.2+ 新增的配置阶段
 	Play
 )
 
