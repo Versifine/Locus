@@ -180,7 +180,7 @@ func (s *Server) relayPackets(src, dst net.Conn, tag string, connState *protocol
 				if err != nil {
 					return err
 				}
-				s.eventBus.Publish("chat", event.NewChatEvent(protocol.FormatTextComponent(playerChat.NetworkName), playerChat.SenderUUID, playerChat.PlainMessage, event.SourcePlayer))
+				s.eventBus.Publish(event.EventChat, event.NewChatEvent(protocol.FormatTextComponent(playerChat.NetworkName), playerChat.SenderUUID, playerChat.PlainMessage, event.SourcePlayer))
 			}
 			if tag == "S->C" && packet.ID == 0x77 {
 				packetRdr := bytes.NewReader(packet.Payload)
@@ -188,7 +188,7 @@ func (s *Server) relayPackets(src, dst net.Conn, tag string, connState *protocol
 				if err != nil {
 					return err
 				}
-				s.eventBus.Publish("chat", event.NewChatEvent("SYSTEM", protocol.UUID{}, protocol.FormatTextComponent(&systemChat.Content), event.SourceSystem))
+				s.eventBus.Publish(event.EventChat, event.NewChatEvent("SYSTEM", protocol.UUID{}, protocol.FormatTextComponent(&systemChat.Content), event.SourceSystem))
 			}
 			// Chat Message (C->S 0x08, Chat Command (C->S 0x06), Chat Command Signed (C->S 0x07)
 			if tag == "C->S" && packet.ID == 0x08 {
@@ -197,7 +197,7 @@ func (s *Server) relayPackets(src, dst net.Conn, tag string, connState *protocol
 				if err != nil {
 					return err
 				}
-				s.eventBus.Publish("chat", event.NewChatEvent(connState.Username(), connState.UUID(), chatMsg.ChatMessage, event.SourcePlayerSend))
+				s.eventBus.Publish(event.EventChat, event.NewChatEvent(connState.Username(), connState.UUID(), chatMsg.ChatMessage, event.SourcePlayerSend))
 			}
 			if tag == "C->S" && packet.ID == 0x06 {
 				packetRdr := bytes.NewReader(packet.Payload)
@@ -205,7 +205,7 @@ func (s *Server) relayPackets(src, dst net.Conn, tag string, connState *protocol
 				if err != nil {
 					return err
 				}
-				s.eventBus.Publish("chat", event.NewChatEvent(connState.Username(), connState.UUID(), chatCmd.Command, event.SourcePlayerCmd))
+				s.eventBus.Publish(event.EventChat, event.NewChatEvent(connState.Username(), connState.UUID(), chatCmd.Command, event.SourcePlayerCmd))
 
 			}
 			if tag == "C->S" && packet.ID == 0x07 {
@@ -214,7 +214,7 @@ func (s *Server) relayPackets(src, dst net.Conn, tag string, connState *protocol
 				if err != nil {
 					return err
 				}
-				s.eventBus.Publish("chat", event.NewChatEvent(connState.Username(), connState.UUID(), chatCmdSigned.Command, event.SourcePlayerCmd))
+				s.eventBus.Publish(event.EventChat, event.NewChatEvent(connState.Username(), connState.UUID(), chatCmdSigned.Command, event.SourcePlayerCmd))
 
 			}
 		default:
