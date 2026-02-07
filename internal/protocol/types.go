@@ -1,9 +1,11 @@
 package protocol
 
 import (
+	"crypto/md5"
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 )
 
 const (
@@ -146,4 +148,57 @@ func ReadBool(r io.Reader) (bool, error) {
 		return false, err
 	}
 	return buf[0] != 0, nil
+}
+
+func WriteUUID(w io.Writer, uuid UUID) error {
+	_, err := w.Write(uuid[:])
+	return err
+}
+
+func WriteUnsignedShort(w io.Writer, value uint16) error {
+	var buf [2]byte
+	binary.BigEndian.PutUint16(buf[:], value)
+	_, err := w.Write(buf[:])
+	return err
+}
+
+func WriteBool(w io.Writer, value bool) error {
+	var b byte
+	if value {
+		b = 1
+	}
+	_, err := w.Write([]byte{b})
+	return err
+}
+
+func WriteInt64(w io.Writer, value int64) error {
+	var buf [8]byte
+	binary.BigEndian.PutUint64(buf[:], uint64(value))
+	_, err := w.Write(buf[:])
+	return err
+}
+
+func WriteFloat(w io.Writer, value float32) error {
+	var buf [4]byte
+	binary.BigEndian.PutUint32(buf[:], math.Float32bits(value))
+	_, err := w.Write(buf[:])
+	return err
+}
+
+func WriteDouble(w io.Writer, value float64) error {
+	var buf [8]byte
+	binary.BigEndian.PutUint64(buf[:], math.Float64bits(value))
+	_, err := w.Write(buf[:])
+	return err
+}
+
+// GenerateOfflineUUID generates a version-3 UUID for offline-mode players.
+// Algorithm: MD5("OfflinePlayer:" + username), then set version=3 and variant=RFC4122.
+func GenerateOfflineUUID(username string) UUID {
+	hash := md5.Sum([]byte("OfflinePlayer:" + username))
+	// Set version to 3: byte 6 → 0011xxxx
+	hash[6] = (hash[6] & 0x0F) | 0x30
+	// Set variant to RFC 4122: byte 8 → 10xxxxxx
+	hash[8] = (hash[8] & 0x3F) | 0x80
+	return UUID(hash)
 }
