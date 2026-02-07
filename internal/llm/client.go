@@ -55,10 +55,13 @@ var defaultConfig = config.LLMConfig{
 	APIKey:      "",
 	Endpoint:    "https://api.deepseek.com/v1/chat/completions",
 	Timeout:     30,
-	MaxTokens:   1024,
+	MaxTokens:   64,
 	Temperature: 0.7,
 }
 
+func (c *Client) Config() config.LLMConfig {
+	return c.config
+}
 func NewLLMClient(cfg *config.LLMConfig) *Client {
 	if cfg == nil {
 		cfg = &defaultConfig

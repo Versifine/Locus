@@ -53,7 +53,7 @@ func (s *Server) Start(ctx context.Context) error {
 			slog.Error("Failed to accept connection", "error", err)
 			return err
 		}
-		go s.handleConnection(conn, ctx)
+		go s.handleConnection(ctx, conn)
 	}
 }
 
@@ -80,7 +80,7 @@ func (s *Server) handleInjects(backendConn net.Conn, ctx context.Context, connSt
 	}
 }
 
-func (s *Server) handleConnection(clientConn net.Conn, ctx context.Context) {
+func (s *Server) handleConnection(ctx context.Context, clientConn net.Conn) {
 	// Disable Nagle's algorithm for lower latency
 	defer clientConn.Close()
 	if tcpConn, ok := clientConn.(*net.TCPConn); ok {
@@ -114,14 +114,14 @@ func (s *Server) handleConnection(clientConn net.Conn, ctx context.Context) {
 
 	go func() {
 		defer wg.Done()
-		err := s.relayPackets(clientConn, backendConn, "C->S", connState)
+		err := s.relayPackets(connCtx, clientConn, backendConn, "C->S", connState)
 		if err != nil {
 			slog.Error("Relay error", "dir", "C->S", "error", err)
 		}
 	}()
 	go func() {
 		defer wg.Done()
-		err := s.relayPackets(backendConn, clientConn, "S->C", connState)
+		err := s.relayPackets(connCtx, backendConn, clientConn, "S->C", connState)
 		if err != nil {
 			slog.Error("Relay error", "dir", "S->C", "error", err)
 		}
@@ -130,7 +130,7 @@ func (s *Server) handleConnection(clientConn net.Conn, ctx context.Context) {
 	slog.Info("Connection closed", "client", clientConn.RemoteAddr())
 }
 
-func (s *Server) relayPackets(src, dst net.Conn, tag string, connState *protocol.ConnState) error {
+func (s *Server) relayPackets(ctx context.Context, src, dst net.Conn, tag string, connState *protocol.ConnState) error {
 	for {
 		// Read with current threshold
 		currentThreshold := connState.GetThreshold()
@@ -161,7 +161,7 @@ func (s *Server) relayPackets(src, dst net.Conn, tag string, connState *protocol
 				return err
 			}
 		case protocol.Play:
-			if err := s.handlePlay(packet, tag, connState); err != nil {
+			if err := s.handlePlay(ctx, packet, tag, connState); err != nil {
 				return err
 			}
 		default:
@@ -254,7 +254,7 @@ func (s *Server) handleConfiguration(packet *protocol.Packet, tag string, connSt
 	return nil
 }
 
-func (s *Server) handlePlay(packet *protocol.Packet, tag string, connState *protocol.ConnState) error {
+func (s *Server) handlePlay(ctx context.Context, packet *protocol.Packet, tag string, connState *protocol.ConnState) error {
 	if tag == "S->C" && packet.ID == protocol.S2CPlayerChatMessage {
 		packetRdr := bytes.NewReader(packet.Payload)
 		playerChat, err := protocol.ParsePlayerChat(packetRdr)
@@ -262,7 +262,7 @@ func (s *Server) handlePlay(packet *protocol.Packet, tag string, connState *prot
 			slog.Warn("Failed to parse Player Chat", "error", err)
 			return nil
 		}
-		s.eventBus.Publish(event.EventChat, event.NewChatEvent(protocol.FormatTextComponent(playerChat.NetworkName), playerChat.SenderUUID, playerChat.PlainMessage, event.SourcePlayer))
+		s.eventBus.Publish(event.EventChat, event.NewChatEvent(ctx, protocol.FormatTextComponent(playerChat.NetworkName), playerChat.SenderUUID, playerChat.PlainMessage, event.SourcePlayer))
 	}
 	if tag == "S->C" && packet.ID == protocol.S2CSystemChatMessage {
 		packetRdr := bytes.NewReader(packet.Payload)
@@ -271,7 +271,7 @@ func (s *Server) handlePlay(packet *protocol.Packet, tag string, connState *prot
 			slog.Warn("Failed to parse System Chat", "error", err)
 			return nil
 		}
-		s.eventBus.Publish(event.EventChat, event.NewChatEvent("SYSTEM", protocol.UUID{}, protocol.FormatTextComponent(&systemChat.Content), event.SourceSystem))
+		s.eventBus.Publish(event.EventChat, event.NewChatEvent(ctx, "SYSTEM", protocol.UUID{}, protocol.FormatTextComponent(&systemChat.Content), event.SourceSystem))
 	}
 	// Chat Message (C->S 0x08, Chat Command (C->S 0x06), Chat Command Signed (C->S 0x07)
 	if tag == "C->S" && packet.ID == protocol.C2SChatMessage {
@@ -281,7 +281,7 @@ func (s *Server) handlePlay(packet *protocol.Packet, tag string, connState *prot
 			slog.Warn("Failed to parse Chat Message", "error", err)
 			return nil
 		}
-		s.eventBus.Publish(event.EventChat, event.NewChatEvent(connState.Username(), connState.UUID(), chatMsg.Message, event.SourcePlayerSend))
+		s.eventBus.Publish(event.EventChat, event.NewChatEvent(ctx, connState.Username(), connState.UUID(), chatMsg.Message, event.SourcePlayerSend))
 	}
 	if tag == "C->S" && packet.ID == protocol.C2SChatCommand {
 		packetRdr := bytes.NewReader(packet.Payload)
@@ -290,7 +290,7 @@ func (s *Server) handlePlay(packet *protocol.Packet, tag string, connState *prot
 			slog.Warn("Failed to parse Chat Command", "error", err)
 			return nil
 		}
-		s.eventBus.Publish(event.EventChat, event.NewChatEvent(connState.Username(), connState.UUID(), chatCmd.Command, event.SourcePlayerCmd))
+		s.eventBus.Publish(event.EventChat, event.NewChatEvent(ctx, connState.Username(), connState.UUID(), chatCmd.Command, event.SourcePlayerCmd))
 
 	}
 	if tag == "C->S" && packet.ID == protocol.C2SChatCommandSigned {
@@ -300,7 +300,7 @@ func (s *Server) handlePlay(packet *protocol.Packet, tag string, connState *prot
 			slog.Warn("Failed to parse Chat Command Signed", "error", err)
 			return nil
 		}
-		s.eventBus.Publish(event.EventChat, event.NewChatEvent(connState.Username(), connState.UUID(), chatCmdSigned.Command, event.SourcePlayerCmd))
+		s.eventBus.Publish(event.EventChat, event.NewChatEvent(ctx, connState.Username(), connState.UUID(), chatCmdSigned.Command, event.SourcePlayerCmd))
 	}
 	return nil
 }

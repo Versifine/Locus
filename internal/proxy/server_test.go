@@ -104,7 +104,7 @@ func startProxyOnceForTest(t *testing.T, backendAddr string) (string, <-chan str
 			return
 		}
 		defer conn.Close()
-		server.handleConnection(conn, context.Background())
+		server.handleConnection(context.Background(), conn)
 	}()
 
 	return proxyListener.Addr().String(), done

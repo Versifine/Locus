@@ -33,7 +33,7 @@ func main() {
 		fmt.Sprintf("%s:%d", cfg.Backend.Host, cfg.Backend.Port),
 	)
 	llmClient := llm.NewLLMClient(&cfg.LLM)
-	_ = agent.NewAgent(ctx, server.Bus(), server, llmClient)
+	_ = agent.NewAgent(server.Bus(), server, llmClient)
 	err = server.Start(ctx)
 	if err != nil {
 		slog.Error("Failed to start server", "error", err)

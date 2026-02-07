@@ -1,6 +1,7 @@
 package event
 
 import (
+	"context"
 	"testing"
 
 	"github.com/Versifine/locus/internal/protocol"
@@ -33,7 +34,7 @@ func TestSourceTypeString(t *testing.T) {
 // TestNewChatEvent 测试创建聊天事件
 func TestNewChatEvent(t *testing.T) {
 	uuid := protocol.UUID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10}
-	event := NewChatEvent("Steve", uuid, "Hello World", SourcePlayer)
+	event := NewChatEvent(context.Background(), "Steve", uuid, "Hello World", SourcePlayer)
 
 	if event == nil {
 		t.Fatal("NewChatEvent() 返回 nil")
@@ -58,7 +59,7 @@ func TestNewChatEventAllSources(t *testing.T) {
 
 	for _, source := range sources {
 		t.Run(source.String(), func(t *testing.T) {
-			event := NewChatEvent("Player", protocol.UUID{}, "msg", source)
+			event := NewChatEvent(context.Background(), "Player", protocol.UUID{}, "msg", source)
 			if event.Source != source {
 				t.Errorf("Source = %v, 期望 %v", event.Source, source)
 			}
