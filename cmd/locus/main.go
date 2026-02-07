@@ -17,7 +17,6 @@ import (
 func main() {
 
 	cfg, err := config.Load("configs/config.yaml")
-
 	if err != nil {
 		slog.Error("Failed to load config", "error", err)
 		os.Exit(1)

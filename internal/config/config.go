@@ -10,6 +10,16 @@ type Config struct {
 	Listen  ListenConfig  `yaml:"listen"`
 	Backend BackendConfig `yaml:"backend"`
 	Logging LoggingConfig `yaml:"logging"`
+	LLM     LLMConfig     `yaml:"llm"`
+}
+type LLMConfig struct {
+	Model        string  `yaml:"model"`
+	APIKey       string  `yaml:"api_key"`
+	Endpoint     string  `yaml:"endpoint"`
+	SystemPrompt string  `yaml:"system_prompt"`
+	MaxTokens    int     `yaml:"max_tokens"`
+	Temperature  float64 `yaml:"temperature"`
+	Timeout      int     `yaml:"timeout"`
 }
 
 type ListenConfig struct {

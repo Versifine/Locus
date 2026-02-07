@@ -6,43 +6,19 @@
 
 ## In Progress
 
-（无）
+### T024: LLM 客户端 + 配置 🔄
+> 封装 DeepSeek API 调用，config.yaml 加 LLM 配置段
+
+**步骤**：
+1. ⬜ `config.yaml` 加 `llm` 配置段（api_key, endpoint, model, system_prompt）
+2. ⬜ `internal/config/config.go` 加 `LLMConfig` 结构体
+3. ⬜ 新建 `internal/llm/client.go`：封装 HTTP 调用（OpenAI 兼容格式）
+4. ⬜ 支持多轮对话（传入 messages 数组）
+5. ⬜ 单元测试（mock HTTP）
 
 ---
 
 ## Backlog
-
-### v0.3.1 - 代码质量治理
-
-> 目标：消除已知的安全隐患和可维护性问题
-
-#### T028: 安全与正确性修复
-> 修复 unsafe、连接泄漏、解析中断三个问题
-
-**步骤**：
-1. `nbt.go`：`float32FromBits` / `float64FromBits` 改用 `math.Float32frombits` / `math.Float64frombits`，删除 `unsafe` import
-2. `server.go handleConnection`：给 `clientConn` 加 `defer Close()`
-3. `server.go relayPackets` Play 状态：聊天包解析失败改为 `slog.Warn` + `continue`，不中断连接
-4. 单元测试验证
-
-#### T029: relayPackets 拆分 + 包 ID 常量化
-> 降低 relayPackets 的认知复杂度，消灭魔术数字
-
-**步骤**：
-1. `protocol/` 新增包 ID 常量（按状态分组）
-2. `server.go`：按状态拆出 `handleHandshaking`、`handleLogin`、`handleConfiguration`、`handlePlay` 方法
-3. 所有包 ID 引用改为常量
-4. 验证功能不变
-
-#### T030: 日志配置生效 + 小修补
-> 把 config.yaml 的日志配置真正接上
-
-**步骤**：
-1. `main.go`：读取 `cfg.Logging.Level` 传入 `logger.Init`
-2. `serverbound_chat.go`：`ChatMessage.ChatMessage` → `ChatMessage.Message`，更新所有引用
-3. 验证
-
----
 
 ### v0.3 - LLM 集成 + 聊天回复
 
@@ -93,6 +69,13 @@
 ### v0.3 - 聊天拦截（阶段性） ✅
 
 - [x] T023: Hook 机制框架（事件总线 + Agent 消费者）✅ (2026-02-06)
+
+### v0.3.1 - 代码质量治理 ✅ (2026-02-06)
+
+- [x] T028: 安全与正确性修复（unsafe 移除、连接泄漏、解析中断）✅ (2026-02-06)
+- [x] T029: relayPackets 拆分 + 包 ID 常量化 ✅ (2026-02-06)
+- [x] T030: 日志配置生效 + ChatMessage 字段命名修正 ✅ (2026-02-06)
+
 - [x] T022: 解析 Player Chat Message (S→C) ✅ (2026-02-06)
 - [x] T021: 解析 Chat Message (C→S) ✅ (2026-02-06)
 - [x] T020: 解析 System Chat Message (S→C) ✅ (2026-02-06)
