@@ -1,33 +1,55 @@
-# 🎯 Locus
+# Locus
 
 <p align="center">
   <b>Minecraft 仿生 AI Agent</b><br>
-  用 Go 编写的智能代理，目标是构建具有"灵魂"的仿生 AI——像人类一样感知、思考、学习、行动
+  用 Go 编写的 Minecraft 智能体，目标是构建具有"灵魂"的仿生 AI——像人类一样感知、思考、学习、行动
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat-square&logo=go" alt="Go 1.21+">
-  <img src="https://img.shields.io/badge/Minecraft-Java%20Edition-62B47A?style=flat-square" alt="Minecraft Java">
-  <img src="https://img.shields.io/badge/LLM-DeepSeek%20%7C%20Qwen%20%7C%20GPT-purple?style=flat-square" alt="LLM Support">
-  <img src="https://img.shields.io/badge/Status-WIP-yellow?style=flat-square" alt="Status">
+  <img src="https://img.shields.io/badge/MC-Java%201.21.11-62B47A?style=flat-square" alt="MC Java 1.21.11">
+  <img src="https://img.shields.io/badge/LLM-DeepSeek-purple?style=flat-square" alt="LLM">
+  <img src="https://img.shields.io/badge/Status-v0.3-yellow?style=flat-square" alt="Status">
 </p>
 
 ---
-> **注意：这是个人学习/实验项目，暂时不接受外部贡献。**  
+> **注意：这是个人学习/实验项目，暂时不接受外部贡献。**
 > 欢迎 Fork 和使用，但 Issue 和 PR 可能不会及时处理。
 ---
 
-## ✨ 特性
+## 它是什么
 
-- 🔌 **TCP 代理** - 透明转发 Minecraft 客户端和服务器之间的流量
-- 🔍 **协议解析** - 解析 Minecraft 协议，理解游戏世界
-- 💬 **AI 聊天** - 游戏内聊天接入 LLM，智能对话
-- 🤖 **Bot 控制** - LLM 驱动的自主玩家，能移动、交互、完成任务
-- 📊 **流量可视化** - 实时仪表盘展示数据包（规划中）
+Locus 是一个 **Headless Minecraft Bot**——它自己作为一个独立玩家登录 MC 服务器，通过 LLM（大语言模型）驱动行为。
+
+不需要真人客户端，不需要 Mod，不需要插件。Locus 直接用原生 MC 协议和服务器通信。
+
+```
+                    ┌─────────────┐
+                    │  MC 服务器   │
+                    └──────┬──────┘
+                           │ TCP
+                    ┌──────┴──────┐
+                    │  Locus Bot  │  ← 独立玩家身份
+                    │  Protocol   │  ← 原生 MC 协议
+                    │  Agent      │  ← 事件驱动
+                    │  LLM        │  ← DeepSeek API
+                    └─────────────┘
+```
+
+## 当前能力 (v0.3)
+
+- **协议解析** — 完整实现 MC 1.21.11 (Protocol 774) 的包读写、压缩、状态机
+- **聊天拦截** — 捕获 PlayerChat / SystemChat / ChatMessage / ChatCommand
+- **LLM 集成** — 调用 DeepSeek API，异步生成回复
+- **聊天回复** — AI 生成的回复自动发送到游戏内
+
+## 下一步 (v0.4)
+
+- **Headless Bot** — Locus 作为独立客户端直连 MC 服务器，不再依赖真人客户端
 
 ---
 
-## 🧠 仿生架构
+## 仿生架构
 
 > **核心理念**：不是让 AI 机械地执行脚本，而是模仿人类的认知架构——
 > 有意识循环、有情绪波动、有记忆沉淀、有肌肉记忆、有直觉与深思。
@@ -51,22 +73,22 @@
 ├─────────────────────────────────────────────────────────────┤
 │                    身体 (Body) ← 当前阶段                    │
 │          感知世界 / 执行动作 / 状态反馈 / 时间控制              │
-│                 Protocol + Bot + World State                 │
+│              Headless Bot + Protocol Layer                   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-| 层级 | 名称 | 对应人类 | 确定性 |
-|------|------|----------|--------|
-| L0 | 身体 | 感官 + 肌肉 | 高，可规划 |
-| L1 | 技能 | 肌肉记忆 | 中，分阶段 |
-| L2 | 思考 | 本能/直觉/理性 | 低，研究性 |
-| L3 | 记忆 | 工作/长期记忆 | 低，研究性 |
-| L4 | 情绪/人格 | 情感/性格 | 低，研究性 |
+| 层级 | 名称 | 对应人类 | 状态 |
+|------|------|----------|------|
+| L0 | 身体 | 感官 + 肌肉 | 构建中 |
+| L1 | 技能 | 肌肉记忆 | 规划中 |
+| L2 | 思考 | 本能/直觉/理性 | 研究中 |
+| L3 | 记忆 | 工作/长期记忆 | 待研究 |
+| L4 | 情绪/人格 | 情感/性格 | 待研究 |
 | L5 | 意识 | 自我觉察 | 探索性 |
 
 ---
 
-## 🔬 研究方向
+## 研究方向
 
 | 课题 | 描述 | 灵感来源 |
 |------|------|----------|
@@ -78,25 +100,13 @@
 
 ---
 
-## 🏗️ 系统架构
-
-```
-[MC 客户端] ◄──► [Locus 代理] ◄──► [MC 服务器]
-                    │
-                    ├── 协议解析
-                    ├── 世界状态
-                    └── AI 大脑 (LLM)
-```
-
----
-
-## 🚀 快速开始
+## 快速开始
 
 ### 前置要求
 
 - Go 1.21+
-- Minecraft Java Edition 服务器（离线模式）
-- LLM API Key（DeepSeek / Qwen / 其他）
+- Minecraft Java Edition 服务器（离线模式，`online-mode=false`）
+- LLM API Key（DeepSeek）
 
 ### 编译
 
@@ -109,17 +119,23 @@ go build -o locus ./cmd/locus
 编辑 `configs/config.yaml`：
 
 ```yaml
-listen:
-  host: "0.0.0.0"
-  port: 25565
+mode: "bot"
+
+bot:
+  username: "Locus"
 
 backend:
   host: "127.0.0.1"
-  port: 25566
+  port: 25565
 
 llm:
-  provider: "deepseek"
+  model: "deepseek-chat"
   api_key: "your-api-key"
+  endpoint: "https://api.deepseek.com/v1/chat/completions"
+  system_prompt: "你是 Minecraft 中的 AI 玩家，简短回复"
+  max_tokens: 512
+  temperature: 0.7
+  timeout: 30
 ```
 
 ### 运行
@@ -128,42 +144,51 @@ llm:
 ./locus
 ```
 
-然后在 Minecraft 客户端连接 `localhost:25565`。
+Bot 会自动登录配置的 MC 服务器，在游戏内和其他玩家聊天。
 
 ---
 
-## 📅 路线图
+## 路线图
 
 | 版本 | 功能 | 状态 |
 |------|------|------|
-| v0.1 | TCP 透明代理 | ✅ 完成 |
-| v0.2 | 协议解析 | 🔄 开发中 |
-| v0.3 | 聊天机器人 | ⬜ 计划中 |
-| v0.4 | 世界感知 | ⬜ 计划中 |
-| v0.5 | Bot 控制 | ⬜ 计划中 |
-| v0.6 | 智能行为 | ⬜ 计划中 |
-
-### v0.2 协议解析进度
-
-- ✅ 基础包结构 (VarInt, VarLong, String, UUID...)
-- ✅ 握手 & 状态机
-- ✅ 登录流程
-- ✅ NBT 解析器
-- ✅ 系统聊天消息 (S→C)
-- 🔄 玩家聊天消息 (S→C)
-- 🔄 客户端聊天消息 (C→S)
+| v0.1 | TCP 代理 + 配置 | ✅ 完成 |
+| v0.2 | 协议解析层 | ✅ 完成 |
+| v0.3 | 聊天拦截 + LLM 集成 | ✅ 完成 |
+| **v0.4** | **Headless Bot 登录 + 保活** | **开发中** |
+| v0.5 | 世界感知 + 视野系统 | 规划中 |
+| v0.6 | 原子动作 + 状态反馈 | 规划中 |
+| v0.7+ | 技能框架 + 认知架构 | 研究中 |
 
 ---
 
-## 🛠️ 技术栈
+## 项目结构
+
+```
+locus/
+├── cmd/locus/main.go        # 入口
+├── internal/
+│   ├── bot/                 # Headless Bot（v0.4）
+│   ├── agent/               # AI 决策层
+│   ├── protocol/            # MC 协议解析与构造
+│   ├── event/               # 事件总线
+│   ├── llm/                 # LLM API 客户端
+│   ├── config/              # 配置加载
+│   ├── logger/              # 日志
+│   └── proxy/               # TCP 代理（已归档）
+├── configs/config.yaml      # 运行配置
+└── docs/                    # 文档 + 研究笔记
+```
+
+## 技术栈
 
 - **语言**: Go
-- **协议**: Minecraft Java Edition Protocol
-- **LLM**: DeepSeek / Qwen / GLM / Kimi（可切换）
-- **参考**: [wiki.vg](https://wiki.vg/Protocol)
+- **协议**: Minecraft Java Edition 1.21.11 (Protocol 774)
+- **LLM**: DeepSeek（OpenAI 兼容格式，可切换）
+- **参考**: [minecraft.wiki](https://minecraft.wiki/w/Java_Edition_protocol) / [minecraft-data](https://github.com/PrismarineJS/minecraft-data)
 
 ---
 
-## 📄 License
+## License
 
 MIT License

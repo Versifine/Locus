@@ -1,54 +1,110 @@
 # Locus 任务看板
 
-> 📋 状态说明：⬜ 待办 | 🔄 进行中 | ✅ 完成
+> 状态说明：⬜ 待办 | 🔄 进行中 | ✅ 完成
 
 ---
 
 ## In Progress
 
-### T026: 聊天 → LLM → 回复 串联
-> 完整闭环：收到玩家消息 → 调 LLM → 注入回复
-
-**步骤**：
-1. ⬜ Agent 的 ChatEventHandler 中调用 LLM client
-2. ⬜ 异步处理（goroutine），不阻塞事件总线
-3. ⬜ LLM 返回后通过注入通道发送回复
-4. ⬜ 过滤条件：只响应 SourcePlayer / SourcePlayerSend，忽略系统消息和自己的消息
-5. ⬜ 手动测试验证完整链路
+（无）
 
 ---
 
 ## Backlog
 
-### v0.3 - LLM 集成 + 聊天回复
+### v0.4 - Headless Bot（架构转折）
 
-> 目标：Agent 能监听聊天、调用 LLM、自动回复到游戏内
+> 目标：Locus 作为独立客户端登录 MC 服务器，拥有自己的身份，能收聊天、调 LLM、自动回复。
+> Proxy 归档，Bot 成为核心。
 
-#### T026: 聊天 → LLM → 回复 串联
-> 完整闭环：收到玩家消息 → 调 LLM → 注入回复
+#### T031: Protocol 扩展 — Write 辅助函数
+> 为 Bot 构造发送包提供基础设施
+
+**内容**：
+1. `types.go` 添加 `WriteUUID`, `WriteUnsignedShort`, `WriteBool`, `WriteInt64`, `WriteFloat`, `WriteDouble`
+2. `types.go` 添加 `GenerateOfflineUUID(username)` — MD5("OfflinePlayer:" + username), version=3
+3. 单元测试
+
+---
+
+#### T032: Protocol 扩展 — 包构造函数
+> Bot 登录和保活需要的所有包
+
+**内容**：
+1. `handshake.go` 添加 `CreateHandshakePacket(protocolVersion, serverAddr, serverPort, nextState)`
+2. `login.go` 添加 `CreateLoginStartPacket(username, uuid)`, `CreateLoginAcknowledgedPacket()`
+3. 新建 `configuration.go` — `CreateClientInformationPacket`, `CreateBrandPluginMessagePacket`, `CreateKnownPacksResponsePacket`, `CreateFinishConfigurationAckPacket`
+4. 新建 `keep_alive.go` — `ParseKeepAlive`, `CreateKeepAliveResponsePacket` (Play + Configuration)
+5. 新建 `player_position.go` — `ParseSyncPlayerPosition`, `CreateConfirmTeleportationPacket`
+6. `packet_id.go` 补充所有新增包 ID（需抓包验证 Protocol 774）
+
+---
+
+#### T033: Config 扩展 — Bot 配置
+> 支持 bot 模式选择和 Bot 参数
+
+**内容**：
+1. `config.go` 添加 `Mode string` 和 `BotConfig{Username}`
+2. `config.yaml` 添加 `mode: "bot"` 和 `bot.username: "Locus"`
+
+---
+
+#### T034: Agent 重构 — MessageSender 接口
+> 解除 Agent 对 proxy.Server 的硬依赖
+
+**内容**：
+1. 定义 `MessageSender` 接口（`SendMsgToServer(msg string)`）
+2. Agent 结构体中 `server *proxy.Server` → `sender MessageSender`
+3. 确保 `proxy.Server` 和未来的 `bot.Bot` 都满足该接口
+4. 现有测试通过
+
+---
+
+#### T035: Headless Bot 核心
+> v0.4 的主体工作
+
+**内容**：
+1. 新建 `internal/bot/bot.go`
+2. `Bot` 结构体：`serverAddr`, `username`, `uuid`, `conn`, `connState`, `eventBus`, `injectCh`, `mu`
+3. `login()` — Handshake → LoginStart → 处理 SetCompression/LoginSuccess → 发 LoginAcknowledged
+4. `handleConfiguration()` — 发 ClientInformation + Brand → 处理 KnownPacks/KeepAlive/FinishConfiguration
+5. `readLoop()` — Play 态持续读包：KeepAlive 应答、位置同步确认、聊天事件发布
+6. `handleInjects()` — 从 injectCh 读消息 → CreateSayChatCommand → WritePacket
+7. `Start(ctx)` — 组装上述流程，阻塞直到 ctx 取消
+8. `Bus()`, `SendMsgToServer(msg)` — 公开接口
+
+---
+
+#### T036: main.go 重写 — Bot 为主路径
+> 按 config.Mode 启动 Bot 或 Proxy
+
+**内容**：
+1. `mode: "bot"` → 创建 Bot + Agent，启动 Bot
+2. `mode: "proxy"` (或默认) → 保持现有 Proxy 流程
+3. 验证 Bot 模式下完整流程：启动 → 登录 → 保活 → 聊天回复
+
+---
+
+#### T037: 端到端验收
+> v0.4 整体验收
 
 **步骤**：
-1. Agent 的 ChatEventHandler 中调用 LLM client
-2. 异步处理（goroutine），不阻塞事件总线
-3. LLM 返回后通过注入通道发送回复
-4. 过滤条件：只响应 SourcePlayer / SourcePlayerSend，忽略系统消息和自己的消息
-5. 手动测试验证完整链路
-
-#### T027: 端到端验收
-> v0.3 整体验收
-
-**步骤**：
-1. 连接真实 MC 服务器，玩家发消息，Agent 回复
-2. 验证异步不阻塞代理转发
-3. 验证 LLM 超时 / 失败时的降级处理
-4. 代码审查 + 提交
+1. 配置 `mode: "bot"`, 指向离线模式 MC 服务器
+2. 启动 Locus，确认日志显示 Handshake → Login → Configuration → Play
+3. 确认 Bot 在服务器 Tab 列表中可见
+4. Bot 保持在线 > 30 秒不被踢（Keep-Alive 验证）
+5. 游戏内发消息，确认 Bot 通过 LLM 回复
+6. `go test ./...` 全部通过
+7. 代码审查 + 提交
 
 ---
 
 ## Done
 
-### v0.3 - 聊天拦截（阶段性） ✅
+### v0.3 - LLM 集成 + 聊天回复 ✅
 
+- [x] T027: 端到端验收 ✅ (2026-02-07)
+- [x] T026: 聊天 → LLM → 回复 串联（ChatEventHandler + goroutine 异步 + SplitByRunes 长度限制 + ctx 穿透）✅ (2026-02-07)
 - [x] T025: 回复注入通道（SendMsgToServer + ChatCommand 构造 + connCtx 生命周期）✅ (2026-02-07)
 - [x] T024: LLM 客户端 + 配置（DeepSeek API 封装 + 单元测试）✅ (2026-02-07)
 - [x] T023: Hook 机制框架（事件总线 + Agent 消费者）✅ (2026-02-06)
