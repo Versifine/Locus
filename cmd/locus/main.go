@@ -10,6 +10,7 @@ import (
 
 	"github.com/Versifine/locus/internal/agent"
 	"github.com/Versifine/locus/internal/config"
+	"github.com/Versifine/locus/internal/llm"
 	"github.com/Versifine/locus/internal/logger"
 	"github.com/Versifine/locus/internal/proxy"
 )
@@ -31,7 +32,8 @@ func main() {
 		fmt.Sprintf("%s:%d", cfg.Listen.Host, cfg.Listen.Port),
 		fmt.Sprintf("%s:%d", cfg.Backend.Host, cfg.Backend.Port),
 	)
-	agent.NewAgent(server.Bus(), server)
+	llmClient := llm.NewLLMClient(&cfg.LLM)
+	_ = agent.NewAgent(ctx, server.Bus(), server, llmClient)
 	err = server.Start(ctx)
 	if err != nil {
 		slog.Error("Failed to start server", "error", err)

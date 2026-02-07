@@ -6,7 +6,15 @@
 
 ## In Progress
 
-（无）
+### T026: 聊天 → LLM → 回复 串联
+> 完整闭环：收到玩家消息 → 调 LLM → 注入回复
+
+**步骤**：
+1. ⬜ Agent 的 ChatEventHandler 中调用 LLM client
+2. ⬜ 异步处理（goroutine），不阻塞事件总线
+3. ⬜ LLM 返回后通过注入通道发送回复
+4. ⬜ 过滤条件：只响应 SourcePlayer / SourcePlayerSend，忽略系统消息和自己的消息
+5. ⬜ 手动测试验证完整链路
 
 ---
 
