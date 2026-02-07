@@ -10,6 +10,7 @@ import (
 
 	"github.com/Versifine/locus/internal/agent"
 	"github.com/Versifine/locus/internal/config"
+	"github.com/Versifine/locus/internal/llm"
 	"github.com/Versifine/locus/internal/logger"
 	"github.com/Versifine/locus/internal/proxy"
 )
@@ -17,7 +18,6 @@ import (
 func main() {
 
 	cfg, err := config.Load("configs/config.yaml")
-
 	if err != nil {
 		slog.Error("Failed to load config", "error", err)
 		os.Exit(1)
@@ -32,7 +32,8 @@ func main() {
 		fmt.Sprintf("%s:%d", cfg.Listen.Host, cfg.Listen.Port),
 		fmt.Sprintf("%s:%d", cfg.Backend.Host, cfg.Backend.Port),
 	)
-	agent.NewAgent(server.Bus())
+	llmClient := llm.NewLLMClient(&cfg.LLM)
+	_ = agent.NewAgent(server.Bus(), server, llmClient)
 	err = server.Start(ctx)
 	if err != nil {
 		slog.Error("Failed to start server", "error", err)

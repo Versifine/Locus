@@ -1,6 +1,8 @@
 package event
 
 import (
+	"context"
+
 	"github.com/Versifine/locus/internal/protocol"
 )
 
@@ -36,10 +38,12 @@ type ChatEvent struct {
 	UUID     protocol.UUID
 	Message  string
 	Source   SourceType
+	Ctx      context.Context
 }
 
-func NewChatEvent(username string, uuid protocol.UUID, message string, source SourceType) *ChatEvent {
+func NewChatEvent(ctx context.Context, username string, uuid protocol.UUID, message string, source SourceType) *ChatEvent {
 	return &ChatEvent{
+		Ctx:      ctx,
 		Username: username,
 		UUID:     uuid,
 		Message:  message,
