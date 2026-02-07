@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"bytes"
 	"io"
 )
 
@@ -45,6 +46,17 @@ func ParseChatMessage(r io.Reader) (*ChatMessage, error) {
 
 type ChatCommand struct {
 	Command string
+}
+
+func CreateSayChatCommand(msg string) *Packet {
+	command := "say " + msg
+	payload := make([]byte, 0)
+	writer := bytes.NewBuffer(payload)
+	_ = WriteString(writer, command)
+	return &Packet{
+		ID:      C2SChatCommand,
+		Payload: writer.Bytes(),
+	}
 }
 
 func ParseChatCommand(r io.Reader) (*ChatCommand, error) {

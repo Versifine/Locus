@@ -18,10 +18,12 @@ type Server struct {
 	listenerAddr string
 	backendAddr  string
 	eventBus     *event.Bus
+	injectCh     chan string
+	mu           sync.Mutex
 }
 
 func NewServer(listenerAddr, backendAddr string) *Server {
-	return &Server{listenerAddr: listenerAddr, backendAddr: backendAddr, eventBus: event.NewBus()}
+	return &Server{listenerAddr: listenerAddr, backendAddr: backendAddr, eventBus: event.NewBus(), injectCh: make(chan string, 100)}
 }
 
 func (s *Server) Bus() *event.Bus {
@@ -51,18 +53,44 @@ func (s *Server) Start(ctx context.Context) error {
 			slog.Error("Failed to accept connection", "error", err)
 			return err
 		}
-		go s.handleConnection(conn)
+		go s.handleConnection(conn, ctx)
 	}
 }
 
-func (s *Server) handleConnection(clientConn net.Conn) {
+func (s *Server) SendMsgToServer(msg string) {
+	s.injectCh <- msg
+}
+
+func (s *Server) handleInjects(backendConn net.Conn, ctx context.Context, connState *protocol.ConnState) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case msg := <-s.injectCh:
+			slog.Info("Injecting message to server", "message", msg)
+			packet := protocol.CreateSayChatCommand(msg)
+
+			s.mu.Lock()
+			err := protocol.WritePacket(backendConn, packet, connState.GetThreshold())
+			s.mu.Unlock()
+			if err != nil {
+				slog.Error("Failed to inject message to server", "error", err)
+			}
+		}
+	}
+}
+
+func (s *Server) handleConnection(clientConn net.Conn, ctx context.Context) {
 	// Disable Nagle's algorithm for lower latency
 	defer clientConn.Close()
 	if tcpConn, ok := clientConn.(*net.TCPConn); ok {
 		_ = tcpConn.SetNoDelay(true)
 	}
+	connCtx, connCancel := context.WithCancel(ctx)
+	defer connCancel()
 
 	backendConn, err := net.Dial("tcp", s.backendAddr)
+
 	connState := protocol.NewConnState()
 	connState.Set(protocol.Handshaking)
 
@@ -71,7 +99,9 @@ func (s *Server) handleConnection(clientConn net.Conn) {
 		clientConn.Close()
 		return
 	}
-
+	go func() {
+		s.handleInjects(backendConn, connCtx, connState)
+	}()
 	// Disable Nagle's algorithm for backend connection too
 	if tcpConn, ok := backendConn.(*net.TCPConn); ok {
 		_ = tcpConn.SetNoDelay(true)
@@ -139,8 +169,21 @@ func (s *Server) relayPackets(src, dst net.Conn, tag string, connState *protocol
 		}
 
 		// Write with current (OLD) threshold
-		if err := protocol.WritePacket(dst, packet, currentThreshold); err != nil {
-			return err
+		switch tag {
+		case "C->S":
+			func() {
+				s.mu.Lock()
+				defer s.mu.Unlock()
+				if err := protocol.WritePacket(dst, packet, currentThreshold); err != nil {
+					slog.Error("Failed to write packet to server", "error", err)
+				}
+			}()
+		case "S->C":
+			if err := protocol.WritePacket(dst, packet, currentThreshold); err != nil {
+				return err
+			}
+		default:
+			slog.Error("Unknown Tag")
 		}
 
 		if newThreshold != -2 {

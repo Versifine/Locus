@@ -12,7 +12,7 @@ import (
 // TestNewAgent 测试创建 Agent
 func TestNewAgent(t *testing.T) {
 	bus := event.NewBus()
-	a := NewAgent(bus)
+	a := NewAgent(bus, nil)
 
 	if a == nil {
 		t.Fatal("NewAgent() 返回 nil")
@@ -25,7 +25,7 @@ func TestNewAgent(t *testing.T) {
 // TestNewAgentSubscribesChat 测试 Agent 创建时订阅了 chat 事件
 func TestNewAgentSubscribesChat(t *testing.T) {
 	bus := event.NewBus()
-	_ = NewAgent(bus)
+	_ = NewAgent(bus, nil)
 
 	var called atomic.Bool
 	bus.Subscribe(event.EventChat, func(e any) {
@@ -45,10 +45,11 @@ func TestNewAgentSubscribesChat(t *testing.T) {
 func TestChatEventHandler(t *testing.T) {
 	// 正确类型的事件
 	ce := event.NewChatEvent("Steve", protocol.UUID{}, "Hello", event.SourcePlayer)
-	ChatEventHandler(ce) // 不应该 panic
+	a := NewAgent(event.NewBus(), nil)
+	a.ChatEventHandler(ce) // 不应该 panic
 
 	// 错误类型的事件也不应该 panic
-	ChatEventHandler("not a chat event")
-	ChatEventHandler(nil)
-	ChatEventHandler(42)
+	a.ChatEventHandler("not a chat event")
+	a.ChatEventHandler(nil)
+	a.ChatEventHandler(42)
 }

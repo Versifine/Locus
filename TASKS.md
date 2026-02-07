@@ -6,15 +6,7 @@
 
 ## In Progress
 
-### T024: LLM 客户端 + 配置 🔄
-> 封装 DeepSeek API 调用，config.yaml 加 LLM 配置段
-
-**步骤**：
-1. ⬜ `config.yaml` 加 `llm` 配置段（api_key, endpoint, model, system_prompt）
-2. ⬜ `internal/config/config.go` 加 `LLMConfig` 结构体
-3. ⬜ 新建 `internal/llm/client.go`：封装 HTTP 调用（OpenAI 兼容格式）
-4. ⬜ 支持多轮对话（传入 messages 数组）
-5. ⬜ 单元测试（mock HTTP）
+（无）
 
 ---
 
@@ -23,25 +15,6 @@
 ### v0.3 - LLM 集成 + 聊天回复
 
 > 目标：Agent 能监听聊天、调用 LLM、自动回复到游戏内
-
-#### T024: LLM 客户端 + 配置
-> 封装 DeepSeek API 调用，config.yaml 加 LLM 配置段
-
-**步骤**：
-1. `config.yaml` 加 `llm` 配置段（api_key, endpoint, model, system_prompt）
-2. `internal/config/config.go` 加 `LLMConfig` 结构体
-3. 新建 `internal/llm/client.go`：封装 HTTP 调用（OpenAI 兼容格式）
-4. 支持多轮对话（传入 messages 数组）
-5. 单元测试（mock HTTP）
-
-#### T025: 回复注入通道
-> 让 Agent 有能力往 server 连接写包
-
-**步骤**：
-1. 在 `proxy.Server` 中暴露一个 `SendToServer(packet)` 的写入通道
-2. 构造 C→S Chat Command 包（`/say` 或 `/msg`，用命令绕过签名）
-3. Agent 持有写入通道的引用
-4. 单元测试
 
 #### T026: 聊天 → LLM → 回复 串联
 > 完整闭环：收到玩家消息 → 调 LLM → 注入回复
@@ -68,6 +41,8 @@
 
 ### v0.3 - 聊天拦截（阶段性） ✅
 
+- [x] T025: 回复注入通道（SendMsgToServer + ChatCommand 构造 + connCtx 生命周期）✅ (2026-02-07)
+- [x] T024: LLM 客户端 + 配置（DeepSeek API 封装 + 单元测试）✅ (2026-02-07)
 - [x] T023: Hook 机制框架（事件总线 + Agent 消费者）✅ (2026-02-06)
 
 ### v0.3.1 - 代码质量治理 ✅ (2026-02-06)

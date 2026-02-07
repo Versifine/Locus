@@ -106,6 +106,14 @@ func ReadString(r io.Reader) (string, error) {
 	}
 	return string(strBytes), nil
 }
+func WriteString(w io.Writer, s string) error {
+	err := WriteVarint(w, int32(len(s)))
+	if err != nil {
+		return err
+	}
+	_, err = w.Write([]byte(s))
+	return err
+}
 
 func ReadUnsignedShort(r io.Reader) (uint16, error) {
 	var buf [2]byte

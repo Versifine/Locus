@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(go build:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(git -C \"d:\\\\Projects\\\\Locus\" status)",
+      "Bash(git -C \"d:\\\\Projects\\\\Locus\" log -n 3 --oneline)"
     ]
   }
 }

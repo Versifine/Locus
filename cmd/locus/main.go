@@ -31,7 +31,7 @@ func main() {
 		fmt.Sprintf("%s:%d", cfg.Listen.Host, cfg.Listen.Port),
 		fmt.Sprintf("%s:%d", cfg.Backend.Host, cfg.Backend.Port),
 	)
-	agent.NewAgent(server.Bus())
+	agent.NewAgent(server.Bus(), server)
 	err = server.Start(ctx)
 	if err != nil {
 		slog.Error("Failed to start server", "error", err)

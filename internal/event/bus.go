@@ -5,7 +5,7 @@ import (
 	"sync"
 )
 
-type HandlerFunc func(event any)
+type HandlerFunc func(raw any)
 
 type Bus struct {
 	mu       sync.RWMutex
