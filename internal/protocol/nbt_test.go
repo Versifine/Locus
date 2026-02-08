@@ -42,9 +42,9 @@ func TestReadByte(t *testing.T) {
 
 func TestReadInt16(t *testing.T) {
 	tests := []struct {
-		name     string
-		value    int16
-		wantErr  bool
+		name    string
+		value   int16
+		wantErr bool
 	}{
 		{"零值", 0, false},
 		{"正数", 1234, false},
@@ -56,7 +56,8 @@ func TestReadInt16(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var buf [2]byte
 			binary.BigEndian.PutUint16(buf[:], uint16(tt.value))
-			got, err := ReadInt16(bytes.NewReader(buf[:]))
+			got, err := NBTReadInt16(bytes.NewReader(buf[:]))
+
 			if err != nil {
 				t.Fatalf("返回错误: %v", err)
 			}
@@ -67,14 +68,14 @@ func TestReadInt16(t *testing.T) {
 	}
 
 	t.Run("空输入", func(t *testing.T) {
-		_, err := ReadInt16(bytes.NewReader([]byte{}))
+		_, err := NBTReadInt16(bytes.NewReader([]byte{}))
 		if err == nil {
 			t.Error("应该返回错误")
 		}
 	})
 
 	t.Run("字节不足", func(t *testing.T) {
-		_, err := ReadInt16(bytes.NewReader([]byte{0x01}))
+		_, err := NBTReadInt16(bytes.NewReader([]byte{0x01}))
 		if err == nil {
 			t.Error("应该返回错误")
 		}
@@ -162,7 +163,7 @@ func TestReadFloat32(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var buf [4]byte
 			binary.BigEndian.PutUint32(buf[:], math.Float32bits(tt.value))
-			got, err := ReadFloat32(bytes.NewReader(buf[:]))
+			got, err := NBTReadFloat32(bytes.NewReader(buf[:]))
 			if err != nil {
 				t.Fatalf("返回错误: %v", err)
 			}
@@ -173,7 +174,7 @@ func TestReadFloat32(t *testing.T) {
 	}
 
 	t.Run("空输入", func(t *testing.T) {
-		_, err := ReadFloat32(bytes.NewReader([]byte{}))
+		_, err := NBTReadFloat32(bytes.NewReader([]byte{}))
 		if err == nil {
 			t.Error("应该返回错误")
 		}
@@ -194,7 +195,7 @@ func TestReadFloat64(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var buf [8]byte
 			binary.BigEndian.PutUint64(buf[:], math.Float64bits(tt.value))
-			got, err := ReadFloat64(bytes.NewReader(buf[:]))
+			got, err := NBTReadFloat64(bytes.NewReader(buf[:]))
 			if err != nil {
 				t.Fatalf("返回错误: %v", err)
 			}
@@ -205,7 +206,7 @@ func TestReadFloat64(t *testing.T) {
 	}
 
 	t.Run("空输入", func(t *testing.T) {
-		_, err := ReadFloat64(bytes.NewReader([]byte{}))
+		_, err := NBTReadFloat64(bytes.NewReader([]byte{}))
 		if err == nil {
 			t.Error("应该返回错误")
 		}
@@ -254,7 +255,7 @@ func TestReadNBTString(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := ReadNBTString(bytes.NewReader(tt.input))
+			got, err := NBTReadString(bytes.NewReader(tt.input))
 			if tt.wantErr {
 				if err == nil {
 					t.Error("应该返回错误")
@@ -277,7 +278,7 @@ func TestReadNBTByteArray(t *testing.T) {
 		binary.Write(&buf, binary.BigEndian, int32(4))
 		buf.Write([]byte{0x01, 0x02, 0x03, 0x04})
 
-		got, err := ReadNBTByteArray(&buf)
+		got, err := NBTReadByteArray(&buf)
 		if err != nil {
 			t.Fatalf("返回错误: %v", err)
 		}
@@ -291,7 +292,7 @@ func TestReadNBTByteArray(t *testing.T) {
 		var buf bytes.Buffer
 		binary.Write(&buf, binary.BigEndian, int32(0))
 
-		got, err := ReadNBTByteArray(&buf)
+		got, err := NBTReadByteArray(&buf)
 		if err != nil {
 			t.Fatalf("返回错误: %v", err)
 		}
@@ -305,14 +306,14 @@ func TestReadNBTByteArray(t *testing.T) {
 		binary.Write(&buf, binary.BigEndian, int32(10))
 		buf.Write([]byte{0x01, 0x02})
 
-		_, err := ReadNBTByteArray(&buf)
+		_, err := NBTReadByteArray(&buf)
 		if err == nil {
 			t.Error("应该返回错误")
 		}
 	})
 
 	t.Run("空输入", func(t *testing.T) {
-		_, err := ReadNBTByteArray(bytes.NewReader([]byte{}))
+		_, err := NBTReadByteArray(bytes.NewReader([]byte{}))
 		if err == nil {
 			t.Error("应该返回错误")
 		}
@@ -327,7 +328,7 @@ func TestReadNBTIntArray(t *testing.T) {
 		binary.Write(&buf, binary.BigEndian, int32(-200))
 		binary.Write(&buf, binary.BigEndian, int32(300))
 
-		got, err := ReadNBTIntArray(&buf)
+		got, err := NBTReadIntArray(&buf)
 		if err != nil {
 			t.Fatalf("返回错误: %v", err)
 		}
@@ -343,7 +344,7 @@ func TestReadNBTIntArray(t *testing.T) {
 		var buf bytes.Buffer
 		binary.Write(&buf, binary.BigEndian, int32(0))
 
-		got, err := ReadNBTIntArray(&buf)
+		got, err := NBTReadIntArray(&buf)
 		if err != nil {
 			t.Fatalf("返回错误: %v", err)
 		}
@@ -357,7 +358,7 @@ func TestReadNBTIntArray(t *testing.T) {
 		binary.Write(&buf, binary.BigEndian, int32(3))
 		binary.Write(&buf, binary.BigEndian, int32(100))
 
-		_, err := ReadNBTIntArray(&buf)
+		_, err := NBTReadIntArray(&buf)
 		if err == nil {
 			t.Error("应该返回错误")
 		}
@@ -371,7 +372,7 @@ func TestReadNBTLongArray(t *testing.T) {
 		binary.Write(&buf, binary.BigEndian, int64(1234567890123))
 		binary.Write(&buf, binary.BigEndian, int64(-9876543210))
 
-		got, err := ReadNBTLongArray(&buf)
+		got, err := NBTReadLongArray(&buf)
 		if err != nil {
 			t.Fatalf("返回错误: %v", err)
 		}
@@ -387,7 +388,7 @@ func TestReadNBTLongArray(t *testing.T) {
 		var buf bytes.Buffer
 		binary.Write(&buf, binary.BigEndian, int32(0))
 
-		got, err := ReadNBTLongArray(&buf)
+		got, err := NBTReadLongArray(&buf)
 		if err != nil {
 			t.Fatalf("返回错误: %v", err)
 		}
@@ -408,7 +409,7 @@ func TestReadNBTList(t *testing.T) {
 		binary.Write(&buf, binary.BigEndian, int32(20))
 		binary.Write(&buf, binary.BigEndian, int32(30))
 
-		got, err := ReadNBTList(&buf)
+		got, err := NBTReadList(&buf)
 		if err != nil {
 			t.Fatalf("返回错误: %v", err)
 		}
@@ -430,7 +431,7 @@ func TestReadNBTList(t *testing.T) {
 		buf.WriteByte(TagByte) // 元素类型
 		binary.Write(&buf, binary.BigEndian, int32(0))
 
-		got, err := ReadNBTList(&buf)
+		got, err := NBTReadList(&buf)
 		if err != nil {
 			t.Fatalf("返回错误: %v", err)
 		}
@@ -450,7 +451,7 @@ func TestReadNBTList(t *testing.T) {
 		binary.Write(&buf, binary.BigEndian, uint16(2))
 		buf.WriteString("cd")
 
-		got, err := ReadNBTList(&buf)
+		got, err := NBTReadList(&buf)
 		if err != nil {
 			t.Fatalf("返回错误: %v", err)
 		}
@@ -466,7 +467,7 @@ func TestReadNBTList(t *testing.T) {
 	})
 
 	t.Run("空输入", func(t *testing.T) {
-		_, err := ReadNBTList(bytes.NewReader([]byte{}))
+		_, err := NBTReadList(bytes.NewReader([]byte{}))
 		if err == nil {
 			t.Error("应该返回错误")
 		}
@@ -486,7 +487,7 @@ func TestReadNBTCompound(t *testing.T) {
 		// TagEnd
 		buf.WriteByte(TagEnd)
 
-		got, err := ReadNBTCompound(&buf)
+		got, err := NBTReadCompound(&buf)
 		if err != nil {
 			t.Fatalf("返回错误: %v", err)
 		}
@@ -518,7 +519,7 @@ func TestReadNBTCompound(t *testing.T) {
 		// TagEnd
 		buf.WriteByte(TagEnd)
 
-		got, err := ReadNBTCompound(&buf)
+		got, err := NBTReadCompound(&buf)
 		if err != nil {
 			t.Fatalf("返回错误: %v", err)
 		}
@@ -537,7 +538,7 @@ func TestReadNBTCompound(t *testing.T) {
 		var buf bytes.Buffer
 		buf.WriteByte(TagEnd)
 
-		got, err := ReadNBTCompound(&buf)
+		got, err := NBTReadCompound(&buf)
 		if err != nil {
 			t.Fatalf("返回错误: %v", err)
 		}
@@ -560,7 +561,7 @@ func TestReadNBTCompound(t *testing.T) {
 		buf.WriteByte(TagEnd) // 内层结束
 		buf.WriteByte(TagEnd) // 外层结束
 
-		got, err := ReadNBTCompound(&buf)
+		got, err := NBTReadCompound(&buf)
 		if err != nil {
 			t.Fatalf("返回错误: %v", err)
 		}
@@ -571,7 +572,7 @@ func TestReadNBTCompound(t *testing.T) {
 	})
 
 	t.Run("空输入", func(t *testing.T) {
-		_, err := ReadNBTCompound(bytes.NewReader([]byte{}))
+		_, err := NBTReadCompound(bytes.NewReader([]byte{}))
 		if err == nil {
 			t.Error("应该返回错误")
 		}

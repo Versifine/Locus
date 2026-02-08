@@ -27,13 +27,12 @@ func ParseLoginStart(r io.Reader) (*LoginStart, error) {
 }
 
 func CreateLoginStartPacket(username string, uuid UUID) *Packet {
-	payload := make([]byte, 0)
-	writer := bytes.NewBuffer(payload)
-	_ = WriteString(writer, username)
-	_ = WriteUUID(writer, uuid)
+	buf := new(bytes.Buffer)
+	_ = WriteString(buf, username)
+	_ = WriteUUID(buf, uuid)
 	return &Packet{
 		ID:      C2SLoginStart,
-		Payload: writer.Bytes(),
+		Payload: buf.Bytes(),
 	}
 }
 func CreateLoginAcknowledgedPacket() *Packet {

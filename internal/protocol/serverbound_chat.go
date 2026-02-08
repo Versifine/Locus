@@ -21,7 +21,7 @@ func ParseChatMessage(r io.Reader) (*ChatMessage, error) {
 	}
 	chat.Message = chatMessage
 
-	timestamp, err := NBTReadInt64(r)
+	timestamp, err := ReadInt64(r)
 	if err != nil {
 		return nil, err
 	}
@@ -50,12 +50,11 @@ type ChatCommand struct {
 
 func CreateSayChatCommandPacket(msg string) *Packet {
 	command := "say " + msg
-	payload := make([]byte, 0)
-	writer := bytes.NewBuffer(payload)
-	_ = WriteString(writer, command)
+	buf := new(bytes.Buffer)
+	_ = WriteString(buf, command)
 	return &Packet{
 		ID:      C2SChatCommand,
-		Payload: writer.Bytes(),
+		Payload: buf.Bytes(),
 	}
 }
 

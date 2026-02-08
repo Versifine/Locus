@@ -89,11 +89,11 @@ type TeleportConfirm struct {
 	TeleportID int32
 }
 
-func CreateTeleportConfirmPacket(teleportID int32, packetID int32) *Packet {
+func CreateTeleportConfirmPacket(teleportID int32) *Packet {
 	buf := new(bytes.Buffer)
 	_ = WriteVarint(buf, teleportID)
 	return &Packet{
-		ID:      packetID,
+		ID:      C2STeleportConfirm,
 		Payload: buf.Bytes(),
 	}
 }

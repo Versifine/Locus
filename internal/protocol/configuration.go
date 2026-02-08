@@ -57,8 +57,7 @@ type KnownPack struct {
 }
 
 type SelectKnown struct {
-	PacketLength int32
-	Packs        []KnownPack
+	Packs []KnownPack
 }
 
 func CreateSelectKnownPacket(packs []KnownPack, packetID int32) *Packet {

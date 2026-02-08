@@ -25,16 +25,16 @@ const (
 	C2SConfigKeepAlive         = 0x04
 
 	// Play (S→C)
-	S2CPlayerChatMessage     = 0x3f
-	S2CSystemChatMessage     = 0x77
-	S2CPlayClientInformation = 0x0D
-	S2CPlayKeepAlive         = 0x26
-	S2CPlayerPosition        = 0x46
+	S2CPlayerChatMessage = 0x3f
+	S2CSystemChatMessage = 0x77
+	S2CPlayKeepAlive     = 0x2b
+	S2CPlayerPosition    = 0x46
 
 	// Play (C→S)
-	C2SChatCommand       = 0x06
-	C2SChatCommandSigned = 0x07
-	C2SChatMessage       = 0x08
-	C2SPlayKeepAlive     = 0x1b
-	C2STeleportConfirm   = 0x00
+	C2SChatCommand           = 0x06
+	C2SChatCommandSigned     = 0x07
+	C2SChatMessage           = 0x08
+	C2SPlayKeepAlive         = 0x1b
+	C2STeleportConfirm       = 0x00
+	C2SPlayClientInformation = 0x0d
 )

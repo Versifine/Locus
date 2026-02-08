@@ -1,6 +1,9 @@
 package protocol
 
-import "bytes"
+import (
+	"bytes"
+	"io"
+)
 
 type KeepAlive struct {
 	KeepAliveID int64
@@ -13,4 +16,14 @@ func CreateKeepAlivePacket(keepAliveID int64, packetID int32) *Packet {
 		ID:      packetID,
 		Payload: buf.Bytes(),
 	}
+}
+
+func ParseKeepAlive(r io.Reader) (*KeepAlive, error) {
+	keepAliveID, err := ReadInt64(r)
+	if err != nil {
+		return nil, err
+	}
+	return &KeepAlive{
+		KeepAliveID: keepAliveID,
+	}, nil
 }

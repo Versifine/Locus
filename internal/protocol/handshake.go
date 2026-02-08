@@ -13,15 +13,14 @@ type Handshake struct {
 }
 
 func CreateHandshakePacket(protocolVersion int32, serverAddress string, serverPort uint16, nextState int32) *Packet {
-	payload := make([]byte, 0)
-	writer := bytes.NewBuffer(payload)
-	_ = WriteVarint(writer, protocolVersion)
-	_ = WriteString(writer, serverAddress)
-	_ = WriteUnsignedShort(writer, serverPort)
-	_ = WriteVarint(writer, nextState)
+	buf := new(bytes.Buffer)
+	_ = WriteVarint(buf, protocolVersion)
+	_ = WriteString(buf, serverAddress)
+	_ = WriteUnsignedShort(buf, serverPort)
+	_ = WriteVarint(buf, nextState)
 	return &Packet{
 		ID:      C2SHandshake,
-		Payload: writer.Bytes(),
+		Payload: buf.Bytes(),
 	}
 }
 
