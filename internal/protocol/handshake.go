@@ -1,12 +1,28 @@
 package protocol
 
-import "io"
+import (
+	"bytes"
+	"io"
+)
 
 type Handshake struct {
 	ProtocolVersion int32
 	ServerAddress   string
 	ServerPort      uint16
 	NextState       int32
+}
+
+func CreateHandshakePacket(protocolVersion int32, serverAddress string, serverPort uint16, nextState int32) *Packet {
+	payload := make([]byte, 0)
+	writer := bytes.NewBuffer(payload)
+	_ = WriteVarint(writer, protocolVersion)
+	_ = WriteString(writer, serverAddress)
+	_ = WriteUnsignedShort(writer, serverPort)
+	_ = WriteVarint(writer, nextState)
+	return &Packet{
+		ID:      C2SHandshake,
+		Payload: writer.Bytes(),
+	}
 }
 
 func ParseHandshake(r io.Reader) (*Handshake, error) {

@@ -74,73 +74,73 @@ func ReadAnonymousNBT(r io.Reader) (*NBTNode, error) {
 func readPayload(r io.Reader, typeByte byte) (*NBTNode, error) {
 	switch typeByte {
 	case TagByte:
-		b, err := ReadByte(r)
+		b, err := NBTReadByte(r)
 		if err != nil {
 			return nil, err
 		}
 		return &NBTNode{Type: TagByte, Value: b}, nil
 	case TagShort:
-		s, err := ReadInt16(r)
+		s, err := NBTReadInt16(r)
 		if err != nil {
 			return nil, err
 		}
 		return &NBTNode{Type: TagShort, Value: s}, nil
 	case TagInt:
-		i, err := ReadInt32(r)
+		i, err := NBTReadInt32(r)
 		if err != nil {
 			return nil, err
 		}
 		return &NBTNode{Type: TagInt, Value: i}, nil
 	case TagLong:
-		l, err := ReadInt64(r)
+		l, err := NBTReadInt64(r)
 		if err != nil {
 			return nil, err
 		}
 		return &NBTNode{Type: TagLong, Value: l}, nil
 	case TagFloat:
-		f, err := ReadFloat32(r)
+		f, err := NBTReadFloat32(r)
 		if err != nil {
 			return nil, err
 		}
 		return &NBTNode{Type: TagFloat, Value: f}, nil
 	case TagDouble:
-		d, err := ReadFloat64(r)
+		d, err := NBTReadFloat64(r)
 		if err != nil {
 			return nil, err
 		}
 		return &NBTNode{Type: TagDouble, Value: d}, nil
 	case TagByteArray:
-		arr, err := ReadNBTByteArray(r)
+		arr, err := NBTReadByteArray(r)
 		if err != nil {
 			return nil, err
 		}
 		return &NBTNode{Type: TagByteArray, Value: arr}, nil
 	case TagString:
-		s, err := ReadNBTString(r)
+		s, err := NBTReadString(r)
 		if err != nil {
 			return nil, err
 		}
 		return &NBTNode{Type: TagString, Value: s}, nil
 	case TagList:
-		list, err := ReadNBTList(r)
+		list, err := NBTReadList(r)
 		if err != nil {
 			return nil, err
 		}
 		return &NBTNode{Type: TagList, Value: list}, nil
 	case TagCompound:
-		compound, err := ReadNBTCompound(r)
+		compound, err := NBTReadCompound(r)
 		if err != nil {
 			return nil, err
 		}
 		return &NBTNode{Type: TagCompound, Value: compound}, nil
 	case TagIntArray:
-		arr, err := ReadNBTIntArray(r)
+		arr, err := NBTReadIntArray(r)
 		if err != nil {
 			return nil, err
 		}
 		return &NBTNode{Type: TagIntArray, Value: arr}, nil
 	case TagLongArray:
-		arr, err := ReadNBTLongArray(r)
+		arr, err := NBTReadLongArray(r)
 		if err != nil {
 			return nil, err
 		}
@@ -152,7 +152,7 @@ func readPayload(r io.Reader, typeByte byte) (*NBTNode, error) {
 
 	}
 }
-func ReadByte(r io.Reader) (byte, error) {
+func NBTReadByte(r io.Reader) (byte, error) {
 	var buf [1]byte
 	_, err := io.ReadFull(r, buf[:])
 	if err != nil {
@@ -160,7 +160,7 @@ func ReadByte(r io.Reader) (byte, error) {
 	}
 	return buf[0], nil
 }
-func ReadInt16(r io.Reader) (int16, error) {
+func NBTReadInt16(r io.Reader) (int16, error) {
 	var buf [2]byte
 	_, err := io.ReadFull(r, buf[:])
 	if err != nil {
@@ -168,7 +168,7 @@ func ReadInt16(r io.Reader) (int16, error) {
 	}
 	return int16(binary.BigEndian.Uint16(buf[:])), nil
 }
-func ReadInt32(r io.Reader) (int32, error) {
+func NBTReadInt32(r io.Reader) (int32, error) {
 	var buf [4]byte
 	_, err := io.ReadFull(r, buf[:])
 	if err != nil {
@@ -176,7 +176,7 @@ func ReadInt32(r io.Reader) (int32, error) {
 	}
 	return int32(binary.BigEndian.Uint32(buf[:])), nil
 }
-func ReadInt64(r io.Reader) (int64, error) {
+func NBTReadInt64(r io.Reader) (int64, error) {
 	var buf [8]byte
 	_, err := io.ReadFull(r, buf[:])
 	if err != nil {
@@ -184,7 +184,7 @@ func ReadInt64(r io.Reader) (int64, error) {
 	}
 	return int64(binary.BigEndian.Uint64(buf[:])), nil
 }
-func ReadFloat32(r io.Reader) (float32, error) {
+func NBTReadFloat32(r io.Reader) (float32, error) {
 	var buf [4]byte
 	_, err := io.ReadFull(r, buf[:])
 	if err != nil {
@@ -194,7 +194,7 @@ func ReadFloat32(r io.Reader) (float32, error) {
 	return math.Float32frombits(bits), nil
 }
 
-func ReadFloat64(r io.Reader) (float64, error) {
+func NBTReadFloat64(r io.Reader) (float64, error) {
 	var buf [8]byte
 	_, err := io.ReadFull(r, buf[:])
 	if err != nil {
@@ -204,8 +204,8 @@ func ReadFloat64(r io.Reader) (float64, error) {
 	return math.Float64frombits(bits), nil
 }
 
-func ReadNBTByteArray(r io.Reader) ([]byte, error) {
-	length, err := ReadInt32(r)
+func NBTReadByteArray(r io.Reader) ([]byte, error) {
+	length, err := NBTReadInt32(r)
 	if err != nil {
 		return nil, err
 	}
@@ -217,7 +217,7 @@ func ReadNBTByteArray(r io.Reader) ([]byte, error) {
 	return data, nil
 }
 
-func ReadNBTString(r io.Reader) (string, error) {
+func NBTReadString(r io.Reader) (string, error) {
 	length, err := ReadUnsignedShort(r)
 	if err != nil {
 		return "", err
@@ -229,14 +229,14 @@ func ReadNBTString(r io.Reader) (string, error) {
 	}
 	return string(strBytes), nil
 }
-func ReadNBTIntArray(r io.Reader) ([]int32, error) {
-	length, err := ReadInt32(r)
+func NBTReadIntArray(r io.Reader) ([]int32, error) {
+	length, err := NBTReadInt32(r)
 	if err != nil {
 		return nil, err
 	}
 	data := make([]int32, length)
 	for i := int32(0); i < length; i++ {
-		val, err := ReadInt32(r)
+		val, err := NBTReadInt32(r)
 		if err != nil {
 			return nil, err
 		}
@@ -244,14 +244,14 @@ func ReadNBTIntArray(r io.Reader) ([]int32, error) {
 	}
 	return data, nil
 }
-func ReadNBTLongArray(r io.Reader) ([]int64, error) {
-	length, err := ReadInt32(r)
+func NBTReadLongArray(r io.Reader) ([]int64, error) {
+	length, err := NBTReadInt32(r)
 	if err != nil {
 		return nil, err
 	}
 	data := make([]int64, length)
 	for i := int32(0); i < length; i++ {
-		val, err := ReadInt64(r)
+		val, err := NBTReadInt64(r)
 		if err != nil {
 			return nil, err
 		}
@@ -259,12 +259,12 @@ func ReadNBTLongArray(r io.Reader) ([]int64, error) {
 	}
 	return data, nil
 }
-func ReadNBTList(r io.Reader) ([]*NBTNode, error) {
-	elementType, err := ReadByte(r)
+func NBTReadList(r io.Reader) ([]*NBTNode, error) {
+	elementType, err := NBTReadByte(r)
 	if err != nil {
 		return nil, err
 	}
-	length, err := ReadInt32(r)
+	length, err := NBTReadInt32(r)
 	if err != nil {
 		return nil, err
 	}
@@ -278,17 +278,17 @@ func ReadNBTList(r io.Reader) ([]*NBTNode, error) {
 	}
 	return list, nil
 }
-func ReadNBTCompound(r io.Reader) (map[string]*NBTNode, error) {
+func NBTReadCompound(r io.Reader) (map[string]*NBTNode, error) {
 	compound := make(map[string]*NBTNode)
 	for {
-		typeByte, err := ReadByte(r)
+		typeByte, err := NBTReadByte(r)
 		if err != nil {
 			return nil, err
 		}
 		if typeByte == TagEnd {
 			break
 		}
-		name, err := ReadNBTString(r)
+		name, err := NBTReadString(r)
 		if err != nil {
 			return nil, err
 		}

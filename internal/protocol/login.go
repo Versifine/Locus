@@ -1,6 +1,9 @@
 package protocol
 
-import "io"
+import (
+	"bytes"
+	"io"
+)
 
 type LoginStart struct {
 	Username string
@@ -21,4 +24,21 @@ func ParseLoginStart(r io.Reader) (*LoginStart, error) {
 		Username: username,
 		UUID:     uuid,
 	}, nil
+}
+
+func CreateLoginStartPacket(username string, uuid UUID) *Packet {
+	payload := make([]byte, 0)
+	writer := bytes.NewBuffer(payload)
+	_ = WriteString(writer, username)
+	_ = WriteUUID(writer, uuid)
+	return &Packet{
+		ID:      C2SLoginStart,
+		Payload: writer.Bytes(),
+	}
+}
+func CreateLoginAcknowledgedPacket() *Packet {
+	return &Packet{
+		ID:      C2SLoginAcknowledged,
+		Payload: []byte{},
+	}
 }

@@ -6,28 +6,7 @@
 
 ## In Progress
 
-（无）
-
----
-
-## Backlog
-
-### v0.4 - Headless Bot（架构转折）
-
-> 目标：Locus 作为独立客户端登录 MC 服务器，拥有自己的身份，能收聊天、调 LLM、自动回复。
-> Proxy 归档，Bot 成为核心。
-
-#### T031: Protocol 扩展 — Write 辅助函数
-> 为 Bot 构造发送包提供基础设施
-
-**内容**：
-1. `types.go` 添加 `WriteUUID`, `WriteUnsignedShort`, `WriteBool`, `WriteInt64`, `WriteFloat`, `WriteDouble`
-2. `types.go` 添加 `GenerateOfflineUUID(username)` — MD5("OfflinePlayer:" + username), version=3
-3. 单元测试
-
----
-
-#### T032: Protocol 扩展 — 包构造函数
+### T032: Protocol 扩展 — 包构造函数
 > Bot 登录和保活需要的所有包
 
 **内容**：
@@ -39,6 +18,13 @@
 6. `packet_id.go` 补充所有新增包 ID（需抓包验证 Protocol 774）
 
 ---
+
+## Backlog
+
+### v0.4 - Headless Bot（架构转折）
+
+> 目标：Locus 作为独立客户端登录 MC 服务器，拥有自己的身份，能收聊天、调 LLM、自动回复。
+> Proxy 归档，Bot 成为核心。
 
 #### T033: Config 扩展 — Bot 配置
 > 支持 bot 模式选择和 Bot 参数
@@ -100,6 +86,10 @@
 ---
 
 ## Done
+
+### v0.4 - Headless Bot（架构转折）
+
+- [x] T031: Protocol 扩展 — Write 辅助函数（WriteUUID/WriteUnsignedShort/WriteBool/WriteInt64/WriteFloat/WriteDouble + GenerateOfflineUUID）✅ (2026-02-07)
 
 ### v0.3 - LLM 集成 + 聊天回复 ✅
 

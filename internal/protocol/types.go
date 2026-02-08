@@ -170,6 +170,42 @@ func WriteBool(w io.Writer, value bool) error {
 	_, err := w.Write([]byte{b})
 	return err
 }
+func WriteByte(w io.Writer, value byte) error {
+	_, err := w.Write([]byte{value})
+	return err
+}
+func ReadByte(r io.Reader) (byte, error) {
+	var buf [1]byte
+	_, err := io.ReadFull(r, buf[:])
+	if err != nil {
+		return 0, err
+	}
+	return buf[0], nil
+}
+func ReadInt32(r io.Reader) (int32, error) {
+	var buf [4]byte
+	_, err := io.ReadFull(r, buf[:])
+	if err != nil {
+		return 0, err
+	}
+	return int32(binary.BigEndian.Uint32(buf[:])), nil
+}
+
+func WriteInt32(w io.Writer, value int32) error {
+	var buf [4]byte
+	binary.BigEndian.PutUint32(buf[:], uint32(value))
+	_, err := w.Write(buf[:])
+	return err
+}
+
+func ReadInt64(r io.Reader) (int64, error) {
+	var buf [8]byte
+	_, err := io.ReadFull(r, buf[:])
+	if err != nil {
+		return 0, err
+	}
+	return int64(binary.BigEndian.Uint64(buf[:])), nil
+}
 
 func WriteInt64(w io.Writer, value int64) error {
 	var buf [8]byte
@@ -177,12 +213,30 @@ func WriteInt64(w io.Writer, value int64) error {
 	_, err := w.Write(buf[:])
 	return err
 }
+func ReadFloat(r io.Reader) (float32, error) {
+	var buf [4]byte
+	_, err := io.ReadFull(r, buf[:])
+	if err != nil {
+		return 0, err
+	}
+	bits := binary.BigEndian.Uint32(buf[:])
+	return math.Float32frombits(bits), nil
+}
 
 func WriteFloat(w io.Writer, value float32) error {
 	var buf [4]byte
 	binary.BigEndian.PutUint32(buf[:], math.Float32bits(value))
 	_, err := w.Write(buf[:])
 	return err
+}
+func ReadDouble(r io.Reader) (float64, error) {
+	var buf [8]byte
+	_, err := io.ReadFull(r, buf[:])
+	if err != nil {
+		return 0, err
+	}
+	bits := binary.BigEndian.Uint64(buf[:])
+	return math.Float64frombits(bits), nil
 }
 
 func WriteDouble(w io.Writer, value float64) error {
