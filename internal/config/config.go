@@ -11,7 +11,13 @@ type Config struct {
 	Backend BackendConfig `yaml:"backend"`
 	Logging LoggingConfig `yaml:"logging"`
 	LLM     LLMConfig     `yaml:"llm"`
+	Mode    string        `yaml:"mode"`
+	Bot     BotConfig     `yaml:"bot"`
 }
+type BotConfig struct {
+	Username string `yaml:"username"`
+}
+
 type LLMConfig struct {
 	Model        string  `yaml:"model"`
 	APIKey       string  `yaml:"api_key"`

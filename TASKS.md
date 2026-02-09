@@ -6,47 +6,36 @@
 
 ## In Progress
 
-### T032: Protocol 扩展 — 包构造函数
-> Bot 登录和保活需要的所有包
-
-**内容**：
-1. `handshake.go` 添加 `CreateHandshakePacket(protocolVersion, serverAddr, serverPort, nextState)`
-2. `login.go` 添加 `CreateLoginStartPacket(username, uuid)`, `CreateLoginAcknowledgedPacket()`
-3. 新建 `configuration.go` — `CreateClientInformationPacket`, `CreateBrandPluginMessagePacket`, `CreateKnownPacksResponsePacket`, `CreateFinishConfigurationAckPacket`
-4. 新建 `keep_alive.go` — `ParseKeepAlive`, `CreateKeepAliveResponsePacket` (Play + Configuration)
-5. 新建 `player_position.go` — `ParseSyncPlayerPosition`, `CreateConfirmTeleportationPacket`
-6. `packet_id.go` 补充所有新增包 ID（需抓包验证 Protocol 774）
-
----
-
-## Backlog
-
-### v0.4 - Headless Bot（架构转折）
-
-> 目标：Locus 作为独立客户端登录 MC 服务器，拥有自己的身份，能收聊天、调 LLM、自动回复。
-> Proxy 归档，Bot 成为核心。
-
-#### T033: Config 扩展 — Bot 配置
+### 🔄 T033: Config 扩展 — Bot 配置
 > 支持 bot 模式选择和 Bot 参数
 
 **内容**：
 1. `config.go` 添加 `Mode string` 和 `BotConfig{Username}`
 2. `config.yaml` 添加 `mode: "bot"` 和 `bot.username: "Locus"`
+3. 补充单元测试：验证新字段能正确从 YAML 加载
+
+**验收标准**：
+- `go test ./internal/config/...` 通过
+- `config.yaml` 示例包含新字段
 
 ---
 
-#### T034: Agent 重构 — MessageSender 接口
+## Backlog
+
+### ⬜ T034: Agent 重构 — MessageSender 接口
 > 解除 Agent 对 proxy.Server 的硬依赖
 
 **内容**：
 1. 定义 `MessageSender` 接口（`SendMsgToServer(msg string)`）
 2. Agent 结构体中 `server *proxy.Server` → `sender MessageSender`
-3. 确保 `proxy.Server` 和未来的 `bot.Bot` 都满足该接口
+3. `proxy.Server` 满足该接口（编译验证）
 4. 现有测试通过
+
+> 注：Bot 满足该接口在 T035 中验证
 
 ---
 
-#### T035: Headless Bot 核心
+### ⬜ T035: Headless Bot 核心
 > v0.4 的主体工作
 
 **内容**：
@@ -57,11 +46,11 @@
 5. `readLoop()` — Play 态持续读包：KeepAlive 应答、位置同步确认、聊天事件发布
 6. `handleInjects()` — 从 injectCh 读消息 → CreateSayChatCommand → WritePacket
 7. `Start(ctx)` — 组装上述流程，阻塞直到 ctx 取消
-8. `Bus()`, `SendMsgToServer(msg)` — 公开接口
+8. `Bus()`, `SendMsgToServer(msg)` — 公开接口，满足 MessageSender
 
 ---
 
-#### T036: main.go 重写 — Bot 为主路径
+### ⬜ T036: main.go 重写 — Bot 为主路径
 > 按 config.Mode 启动 Bot 或 Proxy
 
 **内容**：
@@ -71,7 +60,7 @@
 
 ---
 
-#### T037: 端到端验收
+### ⬜ T037: 端到端验收
 > v0.4 整体验收
 
 **步骤**：
@@ -89,6 +78,7 @@
 
 ### v0.4 - Headless Bot（架构转折）
 
+- [x] T032: Protocol 扩展 — 包构造函数（Handshake/Login/Configuration/KeepAlive/PlayerPosition + packet_id 补全）✅ (2026-02-08)
 - [x] T031: Protocol 扩展 — Write 辅助函数（WriteUUID/WriteUnsignedShort/WriteBool/WriteInt64/WriteFloat/WriteDouble + GenerateOfflineUUID）✅ (2026-02-07)
 
 ### v0.3 - LLM 集成 + 聊天回复 ✅
