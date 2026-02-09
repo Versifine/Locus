@@ -57,8 +57,9 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 }
 
-func (s *Server) SendMsgToServer(msg string) {
+func (s *Server) SendMsgToServer(msg string) error {
 	s.injectCh <- msg
+	return nil
 }
 
 func (s *Server) handleInjects(backendConn net.Conn, ctx context.Context, connState *protocol.ConnState) {

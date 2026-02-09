@@ -7,17 +7,20 @@ import (
 
 	"github.com/Versifine/locus/internal/event"
 	"github.com/Versifine/locus/internal/llm"
-	"github.com/Versifine/locus/internal/proxy"
 )
 
 type Agent struct {
 	bus    *event.Bus
-	server *proxy.Server
+	sender MessageSender
 	client *llm.Client
 }
 
-func NewAgent(bus *event.Bus, server *proxy.Server, client *llm.Client) *Agent {
-	a := &Agent{bus: bus, server: server, client: client}
+type MessageSender interface {
+	SendMsgToServer(message string) error
+}
+
+func NewAgent(bus *event.Bus, sender MessageSender, client *llm.Client) *Agent {
+	a := &Agent{bus: bus, sender: sender, client: client}
 	bus.Subscribe(event.EventChat, a.ChatEventHandler)
 	return a
 }
@@ -42,7 +45,10 @@ func (a *Agent) handleSourcePlayer(event *event.ChatEvent) {
 		}
 		lines := SplitByRunes(line, 250)
 		for _, l := range lines {
-			a.server.SendMsgToServer(l)
+			err := a.sender.SendMsgToServer(l)
+			if err != nil {
+				slog.Error("Failed to send message to server", "error", err)
+			}
 		}
 	}
 }
@@ -74,8 +80,8 @@ func (a *Agent) ChatEventHandler(raw any) {
 		slog.Error("Invalid event type for ChatEventHandler")
 		return
 	}
-	if a.server == nil {
-		slog.Error("Proxy server is not initialized in Agent")
+	if a.sender == nil {
+		slog.Error("MessageSender is nil")
 		return
 	}
 	// 在这里处理聊天事件，例如记录日志或修改消息内容

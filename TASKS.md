@@ -6,36 +6,7 @@
 
 ## In Progress
 
-### 🔄 T033: Config 扩展 — Bot 配置
-> 支持 bot 模式选择和 Bot 参数
-
-**内容**：
-1. `config.go` 添加 `Mode string` 和 `BotConfig{Username}`
-2. `config.yaml` 添加 `mode: "bot"` 和 `bot.username: "Locus"`
-3. 补充单元测试：验证新字段能正确从 YAML 加载
-
-**验收标准**：
-- `go test ./internal/config/...` 通过
-- `config.yaml` 示例包含新字段
-
----
-
-## Backlog
-
-### ⬜ T034: Agent 重构 — MessageSender 接口
-> 解除 Agent 对 proxy.Server 的硬依赖
-
-**内容**：
-1. 定义 `MessageSender` 接口（`SendMsgToServer(msg string)`）
-2. Agent 结构体中 `server *proxy.Server` → `sender MessageSender`
-3. `proxy.Server` 满足该接口（编译验证）
-4. 现有测试通过
-
-> 注：Bot 满足该接口在 T035 中验证
-
----
-
-### ⬜ T035: Headless Bot 核心
+### 🔄 T035: Headless Bot 核心
 > v0.4 的主体工作
 
 **内容**：
@@ -49,6 +20,8 @@
 8. `Bus()`, `SendMsgToServer(msg)` — 公开接口，满足 MessageSender
 
 ---
+
+## Backlog
 
 ### ⬜ T036: main.go 重写 — Bot 为主路径
 > 按 config.Mode 启动 Bot 或 Proxy
@@ -78,6 +51,8 @@
 
 ### v0.4 - Headless Bot（架构转折）
 
+- [x] T034: Agent 重构 — MessageSender 接口 ✅ (2026-02-09)
+- [x] T033: Config 扩展 — Bot 配置（Mode + BotConfig）✅ (2026-02-09)
 - [x] T032: Protocol 扩展 — 包构造函数（Handshake/Login/Configuration/KeepAlive/PlayerPosition + packet_id 补全）✅ (2026-02-08)
 - [x] T031: Protocol 扩展 — Write 辅助函数（WriteUUID/WriteUnsignedShort/WriteBool/WriteInt64/WriteFloat/WriteDouble + GenerateOfflineUUID）✅ (2026-02-07)
 
@@ -91,7 +66,7 @@
 
 ### v0.3.1 - 代码质量治理 ✅ (2026-02-06)
 
-- [x] T028: 安全与正确性修复（unsafe 移除、连接泄漏、解析中断）✅ (2026-02-06)
+- [x] T028: 安全 with 正确性修复（unsafe 移除、连接泄漏、解析中断）✅ (2026-02-06)
 - [x] T029: relayPackets 拆分 + 包 ID 常量化 ✅ (2026-02-06)
 - [x] T030: 日志配置生效 + ChatMessage 字段命名修正 ✅ (2026-02-06)
 
