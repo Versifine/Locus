@@ -48,14 +48,13 @@ type ChatCommand struct {
 	Command string
 }
 
-func CreateSayChatCommand(msg string) *Packet {
+func CreateSayChatCommandPacket(msg string) *Packet {
 	command := "say " + msg
-	payload := make([]byte, 0)
-	writer := bytes.NewBuffer(payload)
-	_ = WriteString(writer, command)
+	buf := new(bytes.Buffer)
+	_ = WriteString(buf, command)
 	return &Packet{
 		ID:      C2SChatCommand,
-		Payload: writer.Bytes(),
+		Payload: buf.Bytes(),
 	}
 }
 

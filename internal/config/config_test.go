@@ -28,6 +28,14 @@ backend:
 logging:
   level: "info"
   file: "locus.log"
+mode: "bot"
+bot:
+  username: "TestBot"
+llm:
+  model: "gpt-4"
+  api_key: "secret"
+  endpoint: "https://api.openai.com/v1"
+  max_tokens: 100
 `,
 			wantErr: false,
 			validate: func(t *testing.T, cfg *Config, err error) {
@@ -48,6 +56,15 @@ logging:
 				}
 				if cfg.Logging.File != "locus.log" {
 					t.Errorf("Logging.File = %q, 期望 %q", cfg.Logging.File, "locus.log")
+				}
+				if cfg.Mode != "bot" {
+					t.Errorf("Mode = %q, 期望 %q", cfg.Mode, "bot")
+				}
+				if cfg.Bot.Username != "TestBot" {
+					t.Errorf("Bot.Username = %q, 期望 %q", cfg.Bot.Username, "TestBot")
+				}
+				if cfg.LLM.Model != "gpt-4" {
+					t.Errorf("LLM.Model = %q, 期望 %q", cfg.LLM.Model, "gpt-4")
 				}
 			},
 		},
@@ -125,4 +142,3 @@ backend:
 		})
 	}
 }
-

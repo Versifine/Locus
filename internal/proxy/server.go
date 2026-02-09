@@ -57,8 +57,9 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 }
 
-func (s *Server) SendMsgToServer(msg string) {
+func (s *Server) SendMsgToServer(msg string) error {
 	s.injectCh <- msg
+	return nil
 }
 
 func (s *Server) handleInjects(backendConn net.Conn, ctx context.Context, connState *protocol.ConnState) {
@@ -68,7 +69,7 @@ func (s *Server) handleInjects(backendConn net.Conn, ctx context.Context, connSt
 			return
 		case msg := <-s.injectCh:
 			slog.Info("Injecting message to server", "message", msg)
-			packet := protocol.CreateSayChatCommand(msg)
+			packet := protocol.CreateSayChatCommandPacket(msg)
 
 			s.mu.Lock()
 			err := protocol.WritePacket(backendConn, packet, connState.GetThreshold())

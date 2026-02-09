@@ -6,61 +6,7 @@
 
 ## In Progress
 
-（无）
-
----
-
-## Backlog
-
-### v0.4 - Headless Bot（架构转折）
-
-> 目标：Locus 作为独立客户端登录 MC 服务器，拥有自己的身份，能收聊天、调 LLM、自动回复。
-> Proxy 归档，Bot 成为核心。
-
-#### T031: Protocol 扩展 — Write 辅助函数
-> 为 Bot 构造发送包提供基础设施
-
-**内容**：
-1. `types.go` 添加 `WriteUUID`, `WriteUnsignedShort`, `WriteBool`, `WriteInt64`, `WriteFloat`, `WriteDouble`
-2. `types.go` 添加 `GenerateOfflineUUID(username)` — MD5("OfflinePlayer:" + username), version=3
-3. 单元测试
-
----
-
-#### T032: Protocol 扩展 — 包构造函数
-> Bot 登录和保活需要的所有包
-
-**内容**：
-1. `handshake.go` 添加 `CreateHandshakePacket(protocolVersion, serverAddr, serverPort, nextState)`
-2. `login.go` 添加 `CreateLoginStartPacket(username, uuid)`, `CreateLoginAcknowledgedPacket()`
-3. 新建 `configuration.go` — `CreateClientInformationPacket`, `CreateBrandPluginMessagePacket`, `CreateKnownPacksResponsePacket`, `CreateFinishConfigurationAckPacket`
-4. 新建 `keep_alive.go` — `ParseKeepAlive`, `CreateKeepAliveResponsePacket` (Play + Configuration)
-5. 新建 `player_position.go` — `ParseSyncPlayerPosition`, `CreateConfirmTeleportationPacket`
-6. `packet_id.go` 补充所有新增包 ID（需抓包验证 Protocol 774）
-
----
-
-#### T033: Config 扩展 — Bot 配置
-> 支持 bot 模式选择和 Bot 参数
-
-**内容**：
-1. `config.go` 添加 `Mode string` 和 `BotConfig{Username}`
-2. `config.yaml` 添加 `mode: "bot"` 和 `bot.username: "Locus"`
-
----
-
-#### T034: Agent 重构 — MessageSender 接口
-> 解除 Agent 对 proxy.Server 的硬依赖
-
-**内容**：
-1. 定义 `MessageSender` 接口（`SendMsgToServer(msg string)`）
-2. Agent 结构体中 `server *proxy.Server` → `sender MessageSender`
-3. 确保 `proxy.Server` 和未来的 `bot.Bot` 都满足该接口
-4. 现有测试通过
-
----
-
-#### T035: Headless Bot 核心
+### 🔄 T035: Headless Bot 核心
 > v0.4 的主体工作
 
 **内容**：
@@ -71,11 +17,13 @@
 5. `readLoop()` — Play 态持续读包：KeepAlive 应答、位置同步确认、聊天事件发布
 6. `handleInjects()` — 从 injectCh 读消息 → CreateSayChatCommand → WritePacket
 7. `Start(ctx)` — 组装上述流程，阻塞直到 ctx 取消
-8. `Bus()`, `SendMsgToServer(msg)` — 公开接口
+8. `Bus()`, `SendMsgToServer(msg)` — 公开接口，满足 MessageSender
 
 ---
 
-#### T036: main.go 重写 — Bot 为主路径
+## Backlog
+
+### ⬜ T036: main.go 重写 — Bot 为主路径
 > 按 config.Mode 启动 Bot 或 Proxy
 
 **内容**：
@@ -85,7 +33,7 @@
 
 ---
 
-#### T037: 端到端验收
+### ⬜ T037: 端到端验收
 > v0.4 整体验收
 
 **步骤**：
@@ -101,6 +49,13 @@
 
 ## Done
 
+### v0.4 - Headless Bot（架构转折）
+
+- [x] T034: Agent 重构 — MessageSender 接口 ✅ (2026-02-09)
+- [x] T033: Config 扩展 — Bot 配置（Mode + BotConfig）✅ (2026-02-09)
+- [x] T032: Protocol 扩展 — 包构造函数（Handshake/Login/Configuration/KeepAlive/PlayerPosition + packet_id 补全）✅ (2026-02-08)
+- [x] T031: Protocol 扩展 — Write 辅助函数（WriteUUID/WriteUnsignedShort/WriteBool/WriteInt64/WriteFloat/WriteDouble + GenerateOfflineUUID）✅ (2026-02-07)
+
 ### v0.3 - LLM 集成 + 聊天回复 ✅
 
 - [x] T027: 端到端验收 ✅ (2026-02-07)
@@ -111,7 +66,7 @@
 
 ### v0.3.1 - 代码质量治理 ✅ (2026-02-06)
 
-- [x] T028: 安全与正确性修复（unsafe 移除、连接泄漏、解析中断）✅ (2026-02-06)
+- [x] T028: 安全 with 正确性修复（unsafe 移除、连接泄漏、解析中断）✅ (2026-02-06)
 - [x] T029: relayPackets 拆分 + 包 ID 常量化 ✅ (2026-02-06)
 - [x] T030: 日志配置生效 + ChatMessage 字段命名修正 ✅ (2026-02-06)
 

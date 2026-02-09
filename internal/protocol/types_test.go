@@ -2,8 +2,10 @@ package protocol
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"io"
+	"math"
 	"testing"
 )
 
@@ -929,5 +931,388 @@ func TestReadUUIDWithExtraData(t *testing.T) {
 	n, _ := reader.Read(remaining)
 	if n != 2 || remaining[0] != 0xAA || remaining[1] != 0xBB {
 		t.Errorf("ReadUUID() 没有正确消费16字节，剩余数据不对")
+	}
+}
+
+// ============================================================
+// T031: Write 辅助函数 + GenerateOfflineUUID 测试
+// ============================================================
+
+// TestWriteUUID 测试 WriteUUID 函数
+func TestWriteUUID(t *testing.T) {
+	tests := []struct {
+		name     string
+		uuid     UUID
+		expected []byte
+	}{
+		{
+			name:     "全零UUID",
+			uuid:     UUID{},
+			expected: make([]byte, 16),
+		},
+		{
+			name:     "标准UUID",
+			uuid:     UUID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10},
+			expected: []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10},
+		},
+		{
+			name:     "全FF的UUID",
+			uuid:     UUID{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
+			expected: []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			buf := &bytes.Buffer{}
+			err := WriteUUID(buf, tt.uuid)
+			if err != nil {
+				t.Fatalf("WriteUUID() 返回错误: %v", err)
+			}
+			got := buf.Bytes()
+			if !bytes.Equal(got, tt.expected) {
+				t.Errorf("WriteUUID() = %v, 期望 %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+// TestUUIDRoundTrip 测试 UUID 写入→读取往返一致性
+func TestUUIDRoundTrip(t *testing.T) {
+	testUUIDs := []UUID{
+		{},
+		{0x06, 0x9a, 0x79, 0xf4, 0x44, 0xe9, 0x4b, 0x2c, 0x98, 0x30, 0xa5, 0x75, 0x26, 0x2d, 0x8c, 0x85},
+		{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
+	}
+
+	for _, uuid := range testUUIDs {
+		t.Run(uuid.String(), func(t *testing.T) {
+			buf := &bytes.Buffer{}
+			if err := WriteUUID(buf, uuid); err != nil {
+				t.Fatalf("WriteUUID() 错误: %v", err)
+			}
+			got, err := ReadUUID(buf)
+			if err != nil {
+				t.Fatalf("ReadUUID() 错误: %v", err)
+			}
+			if got != uuid {
+				t.Errorf("往返测试失败: 写入 %v, 读取 %v", uuid, got)
+			}
+		})
+	}
+}
+
+// TestWriteUnsignedShort 测试 WriteUnsignedShort 函数
+func TestWriteUnsignedShort(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    uint16
+		expected []byte
+	}{
+		{
+			name:     "零值",
+			input:    0,
+			expected: []byte{0x00, 0x00},
+		},
+		{
+			name:     "小数值",
+			input:    1,
+			expected: []byte{0x00, 0x01},
+		},
+		{
+			name:     "256",
+			input:    256,
+			expected: []byte{0x01, 0x00},
+		},
+		{
+			name:     "最大值",
+			input:    65535,
+			expected: []byte{0xFF, 0xFF},
+		},
+		{
+			name:     "典型端口号25565",
+			input:    25565,
+			expected: []byte{0x63, 0xDD},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			buf := &bytes.Buffer{}
+			err := WriteUnsignedShort(buf, tt.input)
+			if err != nil {
+				t.Fatalf("WriteUnsignedShort() 返回错误: %v", err)
+			}
+			got := buf.Bytes()
+			if !bytes.Equal(got, tt.expected) {
+				t.Errorf("WriteUnsignedShort(%d) = %v, 期望 %v", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
+// TestUnsignedShortRoundTrip 测试 UnsignedShort 往返一致性
+func TestUnsignedShortRoundTrip(t *testing.T) {
+	testValues := []uint16{0, 1, 255, 256, 25565, 65535}
+
+	for _, value := range testValues {
+		buf := &bytes.Buffer{}
+		if err := WriteUnsignedShort(buf, value); err != nil {
+			t.Fatalf("WriteUnsignedShort(%d) 错误: %v", value, err)
+		}
+		got, err := ReadUnsignedShort(buf)
+		if err != nil {
+			t.Fatalf("ReadUnsignedShort() 错误: %v", err)
+		}
+		if got != value {
+			t.Errorf("往返测试失败: 写入 %d, 读取 %d", value, got)
+		}
+	}
+}
+
+// TestWriteBool 测试 WriteBool 函数
+func TestWriteBool(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    bool
+		expected []byte
+	}{
+		{
+			name:     "false",
+			input:    false,
+			expected: []byte{0x00},
+		},
+		{
+			name:     "true",
+			input:    true,
+			expected: []byte{0x01},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			buf := &bytes.Buffer{}
+			err := WriteBool(buf, tt.input)
+			if err != nil {
+				t.Fatalf("WriteBool() 返回错误: %v", err)
+			}
+			got := buf.Bytes()
+			if !bytes.Equal(got, tt.expected) {
+				t.Errorf("WriteBool(%v) = %v, 期望 %v", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
+// TestBoolRoundTrip 测试 Bool 往返一致性
+func TestBoolRoundTrip(t *testing.T) {
+	for _, value := range []bool{true, false} {
+		buf := &bytes.Buffer{}
+		if err := WriteBool(buf, value); err != nil {
+			t.Fatalf("WriteBool(%v) 错误: %v", value, err)
+		}
+		got, err := ReadBool(buf)
+		if err != nil {
+			t.Fatalf("ReadBool() 错误: %v", err)
+		}
+		if got != value {
+			t.Errorf("往返测试失败: 写入 %v, 读取 %v", value, got)
+		}
+	}
+}
+
+// TestWriteInt64 测试 WriteInt64 函数
+func TestWriteInt64(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    int64
+		expected []byte
+	}{
+		{
+			name:     "零值",
+			input:    0,
+			expected: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+		},
+		{
+			name:     "正数1",
+			input:    1,
+			expected: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01},
+		},
+		{
+			name:     "负数-1",
+			input:    -1,
+			expected: []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
+		},
+		{
+			name:     "int64最大值",
+			input:    9223372036854775807,
+			expected: []byte{0x7F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			buf := &bytes.Buffer{}
+			err := WriteInt64(buf, tt.input)
+			if err != nil {
+				t.Fatalf("WriteInt64() 返回错误: %v", err)
+			}
+			got := buf.Bytes()
+			if !bytes.Equal(got, tt.expected) {
+				t.Errorf("WriteInt64(%d) = %v, 期望 %v", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
+// TestInt64RoundTrip 测试 Int64 写入→读取往返一致性
+func TestInt64RoundTrip(t *testing.T) {
+	testValues := []int64{0, 1, -1, 127, -128, 9223372036854775807, -9223372036854775808}
+
+	for _, value := range testValues {
+		buf := &bytes.Buffer{}
+		if err := WriteInt64(buf, value); err != nil {
+			t.Fatalf("WriteInt64(%d) 错误: %v", value, err)
+		}
+		// 使用 binary.BigEndian 读取来验证（与 nbt.go 中 ReadInt64 一致）
+		var raw [8]byte
+		copy(raw[:], buf.Bytes())
+		got := int64(binary.BigEndian.Uint64(raw[:]))
+		if got != value {
+			t.Errorf("往返测试失败: 写入 %d, 读取 %d", value, got)
+		}
+	}
+}
+
+// TestWriteFloat 测试 WriteFloat 函数
+func TestWriteFloat(t *testing.T) {
+	tests := []struct {
+		name  string
+		input float32
+	}{
+		{"零值", 0.0},
+		{"正数", 3.14},
+		{"负数", -1.5},
+		{"最大值", math.MaxFloat32},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			buf := &bytes.Buffer{}
+			err := WriteFloat(buf, tt.input)
+			if err != nil {
+				t.Fatalf("WriteFloat() 返回错误: %v", err)
+			}
+			got := buf.Bytes()
+			if len(got) != 4 {
+				t.Fatalf("WriteFloat() 输出长度 = %d, 期望 4", len(got))
+			}
+			// 验证字节内容
+			bits := binary.BigEndian.Uint32(got)
+			decoded := math.Float32frombits(bits)
+			if decoded != tt.input {
+				t.Errorf("WriteFloat(%v) 解码后 = %v", tt.input, decoded)
+			}
+		})
+	}
+}
+
+// TestWriteDouble 测试 WriteDouble 函数
+func TestWriteDouble(t *testing.T) {
+	tests := []struct {
+		name  string
+		input float64
+	}{
+		{"零值", 0.0},
+		{"正数", 3.141592653589793},
+		{"负数", -1.5},
+		{"最大值", math.MaxFloat64},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			buf := &bytes.Buffer{}
+			err := WriteDouble(buf, tt.input)
+			if err != nil {
+				t.Fatalf("WriteDouble() 返回错误: %v", err)
+			}
+			got := buf.Bytes()
+			if len(got) != 8 {
+				t.Fatalf("WriteDouble() 输出长度 = %d, 期望 8", len(got))
+			}
+			bits := binary.BigEndian.Uint64(got)
+			decoded := math.Float64frombits(bits)
+			if decoded != tt.input {
+				t.Errorf("WriteDouble(%v) 解码后 = %v", tt.input, decoded)
+			}
+		})
+	}
+}
+
+// TestGenerateOfflineUUID 测试离线模式 UUID 生成
+func TestGenerateOfflineUUID(t *testing.T) {
+	tests := []struct {
+		name     string
+		username string
+		expected string
+	}{
+		{
+			name:     "Locus",
+			username: "Locus",
+			expected: "a]replace_with_runtime",
+		},
+		{
+			name:     "Notch",
+			username: "Notch",
+			expected: "b]replace_with_runtime",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			uuid := GenerateOfflineUUID(tt.username)
+
+			// 验证 version = 3（byte 6 的高 4 位为 0011）
+			version := (uuid[6] >> 4) & 0x0F
+			if version != 3 {
+				t.Errorf("GenerateOfflineUUID(%q) version = %d, 期望 3", tt.username, version)
+			}
+
+			// 验证 variant = RFC 4122（byte 8 的高 2 位为 10）
+			variant := (uuid[8] >> 6) & 0x03
+			if variant != 2 { // 0b10 = 2
+				t.Errorf("GenerateOfflineUUID(%q) variant = %d, 期望 2 (RFC 4122)", tt.username, variant)
+			}
+		})
+	}
+}
+
+// TestGenerateOfflineUUID_Deterministic 测试相同用户名生成相同 UUID
+func TestGenerateOfflineUUID_Deterministic(t *testing.T) {
+	uuid1 := GenerateOfflineUUID("Locus")
+	uuid2 := GenerateOfflineUUID("Locus")
+	if uuid1 != uuid2 {
+		t.Errorf("相同用户名应生成相同UUID: %v != %v", uuid1, uuid2)
+	}
+}
+
+// TestGenerateOfflineUUID_DifferentUsers 测试不同用户名生成不同 UUID
+func TestGenerateOfflineUUID_DifferentUsers(t *testing.T) {
+	uuid1 := GenerateOfflineUUID("Alice")
+	uuid2 := GenerateOfflineUUID("Bob")
+	if uuid1 == uuid2 {
+		t.Errorf("不同用户名不应生成相同UUID: %v == %v", uuid1, uuid2)
+	}
+}
+
+// TestGenerateOfflineUUID_KnownValue 测试已知的离线UUID值
+// "OfflinePlayer:Notch" 的 MD5 → 设置 version=3 和 variant=RFC4122 后的已知结果
+func TestGenerateOfflineUUID_KnownValue(t *testing.T) {
+	uuid := GenerateOfflineUUID("Notch")
+	uuidStr := uuid.String()
+	// Notch 的离线 UUID: MD5("OfflinePlayer:Notch") + version=3 + variant=RFC4122
+	expected := "b50ad385-829d-3141-a216-7e7d7539ba7f"
+	if uuidStr != expected {
+		t.Errorf("GenerateOfflineUUID(\"Notch\") = %q, 期望 %q", uuidStr, expected)
 	}
 }

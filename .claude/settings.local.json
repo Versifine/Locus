@@ -10,7 +10,9 @@
       "WebFetch(domain:minecraft.wiki)",
       "Bash(curl:*)",
       "Bash(python3:*)",
-      "Bash(C:\\\\Python314\\\\python.exe:*)"
+      "Bash(C:\\\\Python314\\\\python.exe:*)",
+      "Bash(grep:*)",
+      "Bash(go vet:*)"
     ]
   }
 }
