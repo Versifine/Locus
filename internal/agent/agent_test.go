@@ -76,16 +76,32 @@ func TestAgentSendsReply(t *testing.T) {
 
 	// 测试 SplitByRunes
 	t.Run("SplitByRunes", func(t *testing.T) {
-		input := "1234567890"
-		chunks := SplitByRunes(input, 3)
-		expected := []string{"123", "456", "789", "0"}
-		if len(chunks) != len(expected) {
-			t.Fatalf("长度不符: got %v, want %v", chunks, expected)
+		tests := []struct {
+			name     string
+			input    string
+			limit    int
+			expected []string
+		}{
+			{"simple", "1234567890", 3, []string{"123", "456", "789", "0"}},
+			{"chinese", "你好世界", 2, []string{"你好", "世界"}},
+			{"emoji", "👋👋👋", 1, []string{"👋", "👋", "👋"}},
+			{"limit_greater", "hello", 10, []string{"hello"}},
+			{"empty", "", 5, nil},
+			{"limit_zero", "hello", 0, nil},
 		}
-		for i := range chunks {
-			if chunks[i] != expected[i] {
-				t.Errorf("Index %d 不符: got %s, want %s", i, chunks[i], expected[i])
-			}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				chunks := SplitByRunes(tt.input, tt.limit)
+				if len(chunks) != len(tt.expected) {
+					t.Fatalf("长度不符: got %d, want %d", len(chunks), len(tt.expected))
+				}
+				for i := range chunks {
+					if chunks[i] != tt.expected[i] {
+						t.Errorf("Index %d 不符: got %s, want %s", i, chunks[i], tt.expected[i])
+					}
+				}
+			})
 		}
 	})
 }

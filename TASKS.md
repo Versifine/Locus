@@ -13,7 +13,7 @@
 
 **协议层（Protocol）**
 
-- [ ] T038: Packet ID 补全 — `S2CUpdateHealth`(0x66) / `S2CUpdateTime`(0x6f) / `S2CExperience`(0x65) / `S2CPlayerInfo`(0x44) / `S2CPlayerRemove`(0x43)
+- [x] T038: Packet ID 补全 — `S2CUpdateHealth`(0x66) / `S2CUpdateTime`(0x6f) / `S2CExperience`(0x65) / `S2CPlayerInfo`(0x44) / `S2CPlayerRemove`(0x43) ✅
 - [ ] T039: 解析 UpdateHealth（health:f32 + food:varint + foodSaturation:f32）
 - [ ] T040: 解析 UpdateTime（age:i64 + time:i64 + tickDayTime:bool）
 - [ ] T041: 解析 Experience（experienceBar:f32 + level:varint + totalExperience:varint）

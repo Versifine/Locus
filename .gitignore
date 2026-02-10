@@ -45,10 +45,10 @@ __debug_bin*
 # -----------------------------------------------------------------------------
 #claude
 .claude/
-
+.claude/*
 #
-Task.md
-doc/PRD.md
+TASKS.md
+docs/PRD.md
 
 # VSCode
 .vscode/
