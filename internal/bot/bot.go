@@ -65,12 +65,14 @@ func (b *Bot) login() error {
 		return fmt.Errorf("invalid server address: %w", err)
 	}
 	port, _ := strconv.ParseUint(portStr, 10, 16)
-
+	// 发送握手包和登录开始包
+	slog.Info("Starting Handshake", "state", "Handshake")
 	handshakePacket := protocol.CreateHandshakePacket(protocol.CurrentProtocolVersion, host, uint16(port), protocol.NextStateLogin)
 	if err := protocol.WritePacket(b.conn, handshakePacket, b.connState.GetThreshold()); err != nil {
 		return err
 	}
 	b.connState.Set(protocol.Login)
+	slog.Info("Starting Login", "state", "Login")
 	loginStartPacket := protocol.CreateLoginStartPacket(b.username, b.uuid)
 	if err := protocol.WritePacket(b.conn, loginStartPacket, b.connState.GetThreshold()); err != nil {
 		return err
@@ -101,12 +103,15 @@ func (b *Bot) login() error {
 			}
 			b.connState.SetUsername(loginSuccess.Username)
 			b.connState.SetUUID(loginSuccess.UUID)
+			b.uuid = loginSuccess.UUID
+			b.username = loginSuccess.Username
 
 			loginAckPacket := protocol.CreateLoginAcknowledgedPacket()
 			if err := protocol.WritePacket(b.conn, loginAckPacket, b.connState.GetThreshold()); err != nil {
 				return err
 			}
 			b.connState.Set(protocol.Configuration)
+			slog.Info("Login successful", "username", loginSuccess.Username, "uuid", loginSuccess.UUID.String())
 			return nil
 		}
 	}
@@ -117,7 +122,7 @@ func (b *Bot) handleConfiguration() error {
 	if err := b.writePacket(b.conn, clientInfoPack, b.connState.GetThreshold()); err != nil {
 		return err
 	}
-
+	slog.Info("Starting Configuration", "state", "Configuration")
 	for {
 		packet, err := protocol.ReadPacket(b.conn, b.connState.GetThreshold())
 		if err != nil {
@@ -164,6 +169,7 @@ func (b *Bot) handleConfiguration() error {
 }
 
 func (b *Bot) handlePlayState(ctx context.Context) error {
+	slog.Info("Starting Play", "state", "Play")
 	for {
 		packet, err := protocol.ReadPacket(b.conn, b.connState.GetThreshold())
 		if err != nil {
@@ -188,6 +194,10 @@ func (b *Bot) handlePlayState(ctx context.Context) error {
 			playerChat, err := protocol.ParsePlayerChat(packetRdr)
 			if err != nil {
 				slog.Warn("Failed to parse player chat", "error", err)
+				continue
+			}
+			if playerChat.SenderUUID == b.uuid {
+				// 忽略自己的消息
 				continue
 			}
 			b.eventBus.Publish(event.EventChat, event.NewChatEvent(ctx, protocol.FormatTextComponent(playerChat.NetworkName), playerChat.SenderUUID, playerChat.PlainMessage, event.SourcePlayer))
@@ -217,7 +227,7 @@ func (b *Bot) handleInjection(ctx context.Context) error {
 			return nil
 		case msg := <-b.injectCh:
 			slog.Info("Injecting message", "message", msg)
-			chatPacket := protocol.CreateSayChatCommandPacket(msg)
+			chatPacket := protocol.CreateChatMessagePacket(msg)
 			if err := b.writePacket(b.conn, chatPacket, b.connState.GetThreshold()); err != nil {
 				slog.Error("Failed to inject message", "error", err)
 			}

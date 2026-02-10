@@ -3,14 +3,31 @@ package protocol
 import (
 	"bytes"
 	"io"
+	"time"
 )
 
 type ChatMessage struct {
-	Message   string
-	Timestamp int64
-	Salt      int64
-	Offset    int32
-	Checksum  byte
+	Message      string
+	Timestamp    int64
+	Salt         int64
+	Offset       int32
+	Acknowledged [3]byte
+	Checksum     byte
+}
+
+func CreateChatMessagePacket(msg string) *Packet {
+	buf := new(bytes.Buffer)
+	_ = WriteString(buf, msg)
+	_ = WriteInt64(buf, time.Now().UnixMilli()) // Timestamp
+	_ = WriteInt64(buf, 0)                      // Salt
+	_ = WriteBool(buf, false)                   //hasSignature
+	_ = WriteVarint(buf, 0)                     // Offset
+	buf.Write([]byte{0, 0, 0})                  // Acknowledged
+	_ = WriteByte(buf, 0)                       // Checksum
+	return &Packet{
+		ID:      C2SChatMessage,
+		Payload: buf.Bytes(),
+	}
 }
 
 func ParseChatMessage(r io.Reader) (*ChatMessage, error) {
