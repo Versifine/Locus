@@ -61,34 +61,38 @@ func ParsePlayerInfo(r io.Reader) (*PlayerInfo, error) {
 			players[i].Name = name
 		}
 		if actions&0x02 != 0 {
-			_, err := ReadUUID(r)
+			hasSession, err := ReadBool(r)
 			if err != nil {
 				return nil, err
 			}
-			_, err = ReadInt64(r)
-			if err != nil {
-				return nil, err
-			}
-			n, err := ReadVarint(r)
-			if err != nil {
-				return nil, err
-			}
-			//skip n bytes
-			for j := int32(0); j < n; j++ {
-				_, err := ReadByte(r)
+			if hasSession {
+				_, err := ReadUUID(r)
 				if err != nil {
 					return nil, err
 				}
-			}
-			m, err := ReadVarint(r)
-			if err != nil {
-				return nil, err
-			}
-			//skip m bytes
-			for j := int32(0); j < m; j++ {
-				_, err := ReadByte(r)
+				_, err = ReadInt64(r)
 				if err != nil {
 					return nil, err
+				}
+				n, err := ReadVarint(r)
+				if err != nil {
+					return nil, err
+				}
+				for j := int32(0); j < n; j++ {
+					_, err := ReadByte(r)
+					if err != nil {
+						return nil, err
+					}
+				}
+				m, err := ReadVarint(r)
+				if err != nil {
+					return nil, err
+				}
+				for j := int32(0); j < m; j++ {
+					_, err := ReadByte(r)
+					if err != nil {
+						return nil, err
+					}
 				}
 			}
 		}
@@ -122,14 +126,14 @@ func ParsePlayerInfo(r io.Reader) (*PlayerInfo, error) {
 				}
 			}
 		}
-		if actions&0x40 != 0 {
-			_, err := ReadBool(r)
+		if actions&0x80 != 0 {
+			_, err := ReadVarint(r)
 			if err != nil {
 				return nil, err
 			}
 		}
-		if actions&0x80 != 0 {
-			_, err := ReadVarint(r)
+		if actions&0x40 != 0 {
+			_, err := ReadBool(r)
 			if err != nil {
 				return nil, err
 			}

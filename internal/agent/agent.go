@@ -72,7 +72,7 @@ func (a *Agent) handleSourcePlayer(evt *event.ChatEvent) {
 	// 2. 组装 system + 历史 发给 LLM
 	hist := a.getHistory(evt.UUID)
 	messages := make([]llm.Message, 0, len(hist)+1)
-	messages = append(messages, llm.Message{Role: "system", Content: a.client.Config().SystemPrompt})
+	messages = append(messages, llm.Message{Role: "system", Content: a.client.Config().SystemPrompt + "\n当前状态:\n" + a.stateProvider.GetState().String()})
 	messages = append(messages, hist...)
 
 	response, err := a.client.Chat(evt.Ctx, messages)

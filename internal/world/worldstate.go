@@ -1,6 +1,10 @@
 package world
 
-import "sync"
+import (
+	"fmt"
+	"strings"
+	"sync"
+)
 
 type WorldState struct {
 	position   Position
@@ -17,6 +21,27 @@ type Snapshot struct {
 	Food       int32
 	GameTime   GameTime
 	PlayerList []Player
+}
+
+func (s Snapshot) String() string {
+	var playerInfos []string
+	for _, p := range s.PlayerList {
+		playerInfos = append(playerInfos, fmt.Sprintf("Username: %s UUID: (%s)", p.Name, p.UUID))
+	}
+	playerInfosStr := fmt.Sprintf("[%s]", strings.Join(playerInfos, ", "))
+
+	timeOfDay := s.GameTime.WorldTime % 24000
+	hours := (timeOfDay/1000 + 6) % 24
+	minutes := (timeOfDay % 1000) * 60 / 1000
+
+	return fmt.Sprintf(
+		"Snapshot [Time: %02d:%02d] | [Position: (X: %.2f, Y: %.2f, Z: %.2f, Yaw: %.2f, Pitch: %.2f)] | [Health: %.2f] | [Food: %d] | [Players: %s]",
+		hours, minutes,
+		s.Position.X, s.Position.Y, s.Position.Z, s.Position.Yaw, s.Position.Pitch,
+		s.Health,
+		s.Food,
+		playerInfosStr,
+	)
 }
 
 func (ws *WorldState) GetState() Snapshot {

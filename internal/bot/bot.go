@@ -249,7 +249,8 @@ func (b *Bot) handlePlayState(ctx context.Context) error {
 			packetRdr := bytes.NewReader(packet.Payload)
 			playerInfoUpdate, err := protocol.ParsePlayerInfo(packetRdr)
 			if err != nil {
-				return err
+				slog.Error("Failed to parse player info", "error", err)
+				continue
 			}
 			addPlayerList := make([]world.Player, 0)
 			if playerInfoUpdate.Actions&0x01 != 0 {
