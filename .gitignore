@@ -276,6 +276,9 @@ env/
 # Project Specific
 # -----------------------------------------------------------------------------
 # Project management & personal configuration files
+TASKS.md
+docs/PRD.md
+.claude/
 
 # Compiled plugins or addons
 /plugins/*.so
