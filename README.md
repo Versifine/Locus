@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat-square&logo=go" alt="Go 1.21+">
   <img src="https://img.shields.io/badge/MC-Java%201.21.11-62B47A?style=flat-square" alt="MC Java 1.21.11">
   <img src="https://img.shields.io/badge/LLM-DeepSeek-purple?style=flat-square" alt="LLM">
-  <img src="https://img.shields.io/badge/Status-v0.3-yellow?style=flat-square" alt="Status">
+  <img src="https://img.shields.io/badge/Status-v0.4-blue?style=flat-square" alt="Status">
 </p>
 
 ---
@@ -36,16 +36,20 @@ Locus 是一个 **Headless Minecraft Bot**——它自己作为一个独立玩�
                     └─────────────┘
 ```
 
-## 当前能力 (v0.3)
+## 当前能力 (v0.4)
 
+- **Headless Bot** — Locus 作为独立客户端直连 MC 服务器，完整 Login → Configuration → Play 流程
+- **保活机制** — Keep-Alive 应答 + 位置同步确认，Bot 稳定在线
 - **协议解析** — 完整实现 MC 1.21.11 (Protocol 774) 的包读写、压缩、状态机
 - **聊天拦截** — 捕获 PlayerChat / SystemChat / ChatMessage / ChatCommand
 - **LLM 集成** — 调用 DeepSeek API，异步生成回复
 - **聊天回复** — AI 生成的回复自动发送到游戏内
+- **对话记忆** — 按玩家隔离的滑动窗口历史，支持多轮连贯对话
 
-## 下一步 (v0.4)
+## 下一步 (v0.5)
 
-- **Headless Bot** — Locus 作为独立客户端直连 MC 服务器，不再依赖真人客户端
+- **世界感知** — 解析位置、区块、实体数据
+- **视野过滤** — 只向 AI 提供视锥范围内的信息
 
 ---
 
@@ -136,6 +140,7 @@ llm:
   max_tokens: 512
   temperature: 0.7
   timeout: 30
+  max_history: 20  # 每个玩家保留的对话历史条数
 ```
 
 ### 运行
@@ -155,8 +160,8 @@ Bot 会自动登录配置的 MC 服务器，在游戏内和其他玩家聊天。
 | v0.1 | TCP 代理 + 配置 | ✅ 完成 |
 | v0.2 | 协议解析层 | ✅ 完成 |
 | v0.3 | 聊天拦截 + LLM 集成 | ✅ 完成 |
-| **v0.4** | **Headless Bot 登录 + 保活** | **开发中** |
-| v0.5 | 世界感知 + 视野系统 | 规划中 |
+| v0.4 | Headless Bot + 保活 + 对话记忆 | ✅ 完成 |
+| **v0.5** | **世界感知 + 视野系统** | **下一步** |
 | v0.6 | 原子动作 + 状态反馈 | 规划中 |
 | v0.7+ | 技能框架 + 认知架构 | 研究中 |
 
