@@ -41,6 +41,7 @@ func (b *Bot) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	slog.Info("Connected to server", "address", b.serverAddr)
 	b.conn = conn
 	defer conn.Close()
 	b.connState = protocol.NewConnState()
@@ -79,9 +80,11 @@ func (b *Bot) login() error {
 		if err != nil {
 			return err
 		}
+		slog.Debug("Received packet in Login state", "packet_id", packet.ID)
 		switch packet.ID {
 		case protocol.S2CSetCompression:
 			// 设置压缩
+			slog.Info("Setting compression", "threshold", packet.Payload)
 			packetRdr := bytes.NewReader(packet.Payload)
 			threshold, err := protocol.ReadVarint(packetRdr)
 			if err != nil {
@@ -120,6 +123,7 @@ func (b *Bot) handleConfiguration() error {
 		if err != nil {
 			return err
 		}
+		slog.Debug("Received packet in Configuration state", "packet_id", packet.ID)
 		switch packet.ID {
 		case protocol.S2CConfigKeepAlive:
 			// 响应保持连接包
@@ -165,6 +169,7 @@ func (b *Bot) handlePlayState(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		slog.Debug("Received packet in Play state", "packet_id", packet.ID)
 		switch packet.ID {
 		case protocol.S2CPlayKeepAlive:
 			// 响应保持连接包

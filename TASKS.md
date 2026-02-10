@@ -6,24 +6,7 @@
 
 ## In Progress
 
-### 🔄 T035: Headless Bot 核心
-> v0.4 的主体工作
-
-**内容**：
-1. 新建 `internal/bot/bot.go`
-2. `Bot` 结构体：`serverAddr`, `username`, `uuid`, `conn`, `connState`, `eventBus`, `injectCh`, `mu`
-3. `login()` — Handshake → LoginStart → 处理 SetCompression/LoginSuccess → 发 LoginAcknowledged
-4. `handleConfiguration()` — 发 ClientInformation + Brand → 处理 KnownPacks/KeepAlive/FinishConfiguration
-5. `readLoop()` — Play 态持续读包：KeepAlive 应答、位置同步确认、聊天事件发布
-6. `handleInjects()` — 从 injectCh 读消息 → CreateSayChatCommand → WritePacket
-7. `Start(ctx)` — 组装上述流程，阻塞直到 ctx 取消
-8. `Bus()`, `SendMsgToServer(msg)` — 公开接口，满足 MessageSender
-
----
-
-## Backlog
-
-### ⬜ T036: main.go 重写 — Bot 为主路径
+### 🔄 T036: main.go 重写 — Bot 为主路径
 > 按 config.Mode 启动 Bot 或 Proxy
 
 **内容**：
@@ -51,6 +34,7 @@
 
 ### v0.4 - Headless Bot（架构转折）
 
+- [x] T035: Headless Bot 核心（login/configuration/play/injection 全流程）✅ (2026-02-10)
 - [x] T034: Agent 重构 — MessageSender 接口 ✅ (2026-02-09)
 - [x] T033: Config 扩展 — Bot 配置（Mode + BotConfig）✅ (2026-02-09)
 - [x] T032: Protocol 扩展 — 包构造函数（Handshake/Login/Configuration/KeepAlive/PlayerPosition + packet_id 补全）✅ (2026-02-08)
