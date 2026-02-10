@@ -12,7 +12,10 @@
       "Bash(python3:*)",
       "Bash(C:\\\\Python314\\\\python.exe:*)",
       "Bash(grep:*)",
-      "Bash(go vet:*)"
+      "Bash(go vet:*)",
+      "WebFetch(domain:wiki.vg)",
+      "WebFetch(domain:c4k3.github.io)",
+      "WebFetch(domain:prismarinejs.github.io)"
     ]
   }
 }

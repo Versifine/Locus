@@ -6,17 +6,29 @@
 
 ## In Progress
 
-### 🔄 T037: 端到端验收
-> v0.4 整体验收
+### v0.5a - 自身状态感知
 
-**步骤**：
-1. 配置 `mode: "bot"`, 指向离线模式 MC 服务器
-2. 启动 Locus，确认日志显示 Handshake → Login → Configuration → Play
-3. 确认 Bot 在服务器 Tab 列表中可见
-4. Bot 保持在线 > 30 秒不被踢（Keep-Alive 验证）
-5. 游戏内发消息，确认 Bot 通过 LLM 回复
-6. `go test ./...` 全部通过
-7. 代码审查 + 提交
+> 目标：Bot 能感知自身状态（位置、生命、时间、在线玩家），并将状态注入 LLM 上下文
+> 数据来源：`internal/protocol/1.21.11protocol.json`
+
+**协议层（Protocol）**
+
+- [ ] T038: Packet ID 补全 — `S2CUpdateHealth`(0x66) / `S2CUpdateTime`(0x6f) / `S2CExperience`(0x65) / `S2CPlayerInfo`(0x44) / `S2CPlayerRemove`(0x43)
+- [ ] T039: 解析 UpdateHealth（health:f32 + food:varint + foodSaturation:f32）
+- [ ] T040: 解析 UpdateTime（age:i64 + time:i64 + tickDayTime:bool）
+- [ ] T041: 解析 Experience（experienceBar:f32 + level:varint + totalExperience:varint）
+- [ ] T042: 解析 PlayerInfo — 仅提取 add_player 动作（UUID + name），跳过其余 bitflag 分支
+- [ ] T043: 解析 PlayerRemove（players: array of UUID）
+
+**世界状态（WorldState）**
+
+- [ ] T044: 新建 `internal/world/state.go` — WorldState 结构体（Position / Health / Food / Time / PlayerList），线程安全读写
+- [ ] T045: Bot 集成 — handlePlayState 中分发新包到 WorldState 更新方法
+
+**Agent 集成**
+
+- [ ] T046: Agent 注入 WorldState 摘要 — 每次调 LLM 时将当前状态序列化为 system prompt 的一部分
+- [ ] T047: 端到端验收 — 进入服务器后能回答"你在哪""你血量多少""现在几点了""谁在线"
 
 ---
 
@@ -24,6 +36,7 @@
 
 ### v0.4 - Headless Bot（架构转折）
 
+- [x] T037: 端到端验收（ChatMessage 包构造 + 自触发过滤 + 滑动窗口记忆）✅ (2026-02-10)
 - [x] T036: main.go 重写 — Bot 为主路径（switch cfg.Mode 分流）✅ (2026-02-10)
 - [x] T035: Headless Bot 核心（login/configuration/play/injection 全流程）✅ (2026-02-10)
 - [x] T034: Agent 重构 — MessageSender 接口 ✅ (2026-02-09)
