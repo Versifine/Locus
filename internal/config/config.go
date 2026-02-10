@@ -26,6 +26,7 @@ type LLMConfig struct {
 	MaxTokens    int     `yaml:"max_tokens"`
 	Temperature  float64 `yaml:"temperature"`
 	Timeout      int     `yaml:"timeout"`
+	MaxHistory   int     `yaml:"max_history"`
 }
 
 type ListenConfig struct {

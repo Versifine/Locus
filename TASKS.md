@@ -6,44 +6,7 @@
 
 ## In Progress
 
-### 🔄 T035: Headless Bot 核心
-> v0.4 的主体工作
-
-**内容**：
-1. 新建 `internal/bot/bot.go`
-2. `Bot` 结构体：`serverAddr`, `username`, `uuid`, `conn`, `connState`, `eventBus`, `injectCh`, `mu`
-3. `login()` — Handshake → LoginStart → 处理 SetCompression/LoginSuccess → 发 LoginAcknowledged
-4. `handleConfiguration()` — 发 ClientInformation + Brand → 处理 KnownPacks/KeepAlive/FinishConfiguration
-5. `readLoop()` — Play 态持续读包：KeepAlive 应答、位置同步确认、聊天事件发布
-6. `handleInjects()` — 从 injectCh 读消息 → CreateSayChatCommand → WritePacket
-7. `Start(ctx)` — 组装上述流程，阻塞直到 ctx 取消
-8. `Bus()`, `SendMsgToServer(msg)` — 公开接口，满足 MessageSender
-
----
-
-## Backlog
-
-### ⬜ T036: main.go 重写 — Bot 为主路径
-> 按 config.Mode 启动 Bot 或 Proxy
-
-**内容**：
-1. `mode: "bot"` → 创建 Bot + Agent，启动 Bot
-2. `mode: "proxy"` (或默认) → 保持现有 Proxy 流程
-3. 验证 Bot 模式下完整流程：启动 → 登录 → 保活 → 聊天回复
-
----
-
-### ⬜ T037: 端到端验收
-> v0.4 整体验收
-
-**步骤**：
-1. 配置 `mode: "bot"`, 指向离线模式 MC 服务器
-2. 启动 Locus，确认日志显示 Handshake → Login → Configuration → Play
-3. 确认 Bot 在服务器 Tab 列表中可见
-4. Bot 保持在线 > 30 秒不被踢（Keep-Alive 验证）
-5. 游戏内发消息，确认 Bot 通过 LLM 回复
-6. `go test ./...` 全部通过
-7. 代码审查 + 提交
+（空）
 
 ---
 
@@ -51,6 +14,9 @@
 
 ### v0.4 - Headless Bot（架构转折）
 
+- [x] T037: 端到端验收（ChatMessage 包构造 + 自触发过滤 + 滑动窗口记忆）✅ (2026-02-10)
+- [x] T036: main.go 重写 — Bot 为主路径（switch cfg.Mode 分流）✅ (2026-02-10)
+- [x] T035: Headless Bot 核心（login/configuration/play/injection 全流程）✅ (2026-02-10)
 - [x] T034: Agent 重构 — MessageSender 接口 ✅ (2026-02-09)
 - [x] T033: Config 扩展 — Bot 配置（Mode + BotConfig）✅ (2026-02-09)
 - [x] T032: Protocol 扩展 — 包构造函数（Handshake/Login/Configuration/KeepAlive/PlayerPosition + packet_id 补全）✅ (2026-02-08)

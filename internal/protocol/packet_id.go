@@ -1,6 +1,9 @@
 package protocol
 
 const (
+	CurrentProtocolVersion = 774
+	NextStateLogin         = 2
+
 	// Handshaking (C→S)
 	C2SHandshake = 0x00
 
