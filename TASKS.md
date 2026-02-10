@@ -14,11 +14,11 @@
 **协议层（Protocol）**
 
 - [x] T038: Packet ID 补全 — `S2CUpdateHealth`(0x66) / `S2CUpdateTime`(0x6f) / `S2CExperience`(0x65) / `S2CPlayerInfo`(0x44) / `S2CPlayerRemove`(0x43) ✅
-- [ ] T039: 解析 UpdateHealth（health:f32 + food:varint + foodSaturation:f32）
-- [ ] T040: 解析 UpdateTime（age:i64 + time:i64 + tickDayTime:bool）
-- [ ] T041: 解析 Experience（experienceBar:f32 + level:varint + totalExperience:varint）
-- [ ] T042: 解析 PlayerInfo — 仅提取 add_player 动作（UUID + name），跳过其余 bitflag 分支
-- [ ] T043: 解析 PlayerRemove（players: array of UUID）
+- [x] T039: 解析 UpdateHealth（health:f32 + food:varint + foodSaturation:f32）✅ (2026-02-10)
+- [x] T040: 解析 UpdateTime（age:i64 + worldTime:i64 + tickDayTime:bool）✅ (2026-02-10)
+- [x] T041: 解析 Experience（experienceBar:f32 + level:varint + totalExperience:varint）✅ (2026-02-10)
+- [x] T042: 解析 PlayerInfo — 仅提取 add_player 动作（UUID + name），跳过其余 bitflag 分支 ✅ (2026-02-10)
+- [x] T043: 解析 PlayerRemove（players: array of UUID）✅ (2026-02-10)
 
 **世界状态（WorldState）**
 
