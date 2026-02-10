@@ -32,6 +32,11 @@ const (
 	S2CSystemChatMessage = 0x77
 	S2CPlayKeepAlive     = 0x2b
 	S2CPlayerPosition    = 0x46
+	S2CUpdateHealth      = 0x66
+	S2CUpdateTime        = 0x6f
+	S2CExperience        = 0x65
+	S2CPlayerInfo        = 0x44
+	S2CPlayerRemove      = 0x43
 
 	// Play (C→S)
 	C2SChatCommand           = 0x06
