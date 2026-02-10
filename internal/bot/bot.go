@@ -12,6 +12,7 @@ import (
 
 	"github.com/Versifine/locus/internal/event"
 	"github.com/Versifine/locus/internal/protocol"
+	"github.com/Versifine/locus/internal/world"
 )
 
 type Bot struct {
@@ -21,6 +22,7 @@ type Bot struct {
 	conn       net.Conn
 	connState  *protocol.ConnState
 	eventBus   *event.Bus
+	worldState *world.WorldState
 	injectCh   chan string
 	mu         sync.RWMutex
 }
@@ -32,6 +34,7 @@ func NewBot(serverAddr, username string) *Bot {
 		uuid:       protocol.GenerateOfflineUUID(username),
 		eventBus:   event.NewBus(),
 		injectCh:   make(chan string, 100),
+		worldState: &world.WorldState{},
 	}
 }
 
@@ -212,12 +215,68 @@ func (b *Bot) handlePlayState(ctx context.Context) error {
 				return err
 			}
 			teleCfmPacket := protocol.CreateTeleportConfirmPacket(playerPos.TeleportID)
+			b.worldState.UpdatePosition(world.Position{
+				X:     playerPos.X,
+				Y:     playerPos.Y,
+				Z:     playerPos.Z,
+				Yaw:   playerPos.Yaw,
+				Pitch: playerPos.Pitch,
+			})
 			if err := b.writePacket(b.conn, teleCfmPacket, b.connState.GetThreshold()); err != nil {
 				return err
+			}
+		case protocol.S2CUpdateHealth:
+			// 处理健康和饥饿更新
+			packetRdr := bytes.NewReader(packet.Payload)
+			updateHealth, err := protocol.ParseUpdateHealth(packetRdr)
+			if err != nil {
+				return err
+			}
+			b.worldState.UpdateHealth(updateHealth.Health, updateHealth.Food)
+		case protocol.S2CUpdateTime:
+			// 处理时间更新
+			packetRdr := bytes.NewReader(packet.Payload)
+			updateTime, err := protocol.ParseUpdateTime(packetRdr)
+			if err != nil {
+				return err
+			}
+			b.worldState.UpdateGameTime(world.GameTime{
+				WorldTime: updateTime.WorldTime,
+				Age:       updateTime.Age,
+			})
+		case protocol.S2CPlayerInfo:
+			// 处理玩家信息更新
+			packetRdr := bytes.NewReader(packet.Payload)
+			playerInfoUpdate, err := protocol.ParsePlayerInfo(packetRdr)
+			if err != nil {
+				return err
+			}
+			addPlayerList := make([]world.Player, 0)
+			if playerInfoUpdate.Actions&0x01 != 0 {
+				for _, p := range playerInfoUpdate.Players {
+					addPlayerList = append(addPlayerList, world.Player{
+						Name: p.Name,
+						UUID: p.UUID.String(),
+					})
+				}
+			}
+			if len(addPlayerList) > 0 {
+				b.worldState.AddPlayer(addPlayerList)
+			}
+		case protocol.S2CPlayerRemove:
+			// 处理玩家移除
+			packetRdr := bytes.NewReader(packet.Payload)
+			playerRemove, err := protocol.ParsePlayerRemove(packetRdr)
+			if err != nil {
+				return err
+			}
+			for _, uuid := range playerRemove.Players {
+				b.worldState.RemovePlayer(uuid.String())
 			}
 		default:
 			slog.Debug("Unhandled packet in Play state", "packet_id", packet.ID)
 		}
+
 	}
 }
 func (b *Bot) handleInjection(ctx context.Context) error {
@@ -248,4 +307,7 @@ func (b *Bot) Bus() *event.Bus {
 func (b *Bot) SendMsgToServer(msg string) error {
 	b.injectCh <- msg
 	return nil
+}
+func (b *Bot) GetState() world.Snapshot {
+	return b.worldState.GetState()
 }

@@ -22,7 +22,7 @@
 
 **世界状态（WorldState）**
 
-- [ ] T044: 新建 `internal/world/state.go` — WorldState 结构体（Position / Health / Food / Time / PlayerList），线程安全读写
+- [x] T044: 新建 `internal/world/worldstate.go` — WorldState 结构体（Position / Health / Food / Time / PlayerList），线程安全读写 ✅ (2026-02-10)
 - [ ] T045: Bot 集成 — handlePlayState 中分发新包到 WorldState 更新方法
 
 **Agent 集成**

@@ -12,7 +12,7 @@ import (
 // TestNewAgent 测试创建 Agent
 func TestNewAgent(t *testing.T) {
 	bus := event.NewBus()
-	a := NewAgent(bus, nil, nil)
+	a := NewAgent(bus, nil, nil, nil)
 
 	if a == nil {
 		t.Fatal("NewAgent() 返回 nil")
@@ -25,7 +25,7 @@ func TestNewAgent(t *testing.T) {
 // TestNewAgentSubscribesChat 测试 Agent 创建时订阅了 chat 事件
 func TestNewAgentSubscribesChat(t *testing.T) {
 	bus := event.NewBus()
-	_ = NewAgent(bus, nil, nil)
+	_ = NewAgent(bus, nil, nil, nil)
 
 	var called atomic.Bool
 	bus.Subscribe(event.EventChat, func(e any) {
@@ -68,7 +68,7 @@ func TestAgentSendsReply(t *testing.T) {
 	// 需要一个 Mock LLM Client
 	// 这里由于 llm.Client 结构比较复杂，我们简单测试 SplitByRunes 的逻辑或者用一个真实的 Client (如果环境允许)
 	// 但为了单元测试纯粹，我们主要测试 Agent 的 Sender 注入是否成功。
-	a := NewAgent(bus, mockSender, nil)
+	a := NewAgent(bus, mockSender, nil, nil)
 
 	if a.sender != mockSender {
 		t.Error("Sender 注入失败")

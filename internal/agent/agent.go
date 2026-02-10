@@ -9,15 +9,17 @@ import (
 	"github.com/Versifine/locus/internal/event"
 	"github.com/Versifine/locus/internal/llm"
 	"github.com/Versifine/locus/internal/protocol"
+	"github.com/Versifine/locus/internal/world"
 )
 
 const defaultMaxHistory = 20
 
 type Agent struct {
-	bus        *event.Bus
-	sender     MessageSender
-	client     *llm.Client
-	maxHistory int
+	bus           *event.Bus
+	sender        MessageSender
+	stateProvider StateProvider
+	client        *llm.Client
+	maxHistory    int
 
 	mu      sync.Mutex
 	history map[protocol.UUID][]llm.Message
@@ -26,18 +28,22 @@ type Agent struct {
 type MessageSender interface {
 	SendMsgToServer(message string) error
 }
+type StateProvider interface {
+	GetState() world.Snapshot
+}
 
-func NewAgent(bus *event.Bus, sender MessageSender, client *llm.Client) *Agent {
+func NewAgent(bus *event.Bus, sender MessageSender, stateProvider StateProvider, client *llm.Client) *Agent {
 	maxH := defaultMaxHistory
 	if client != nil && client.Config().MaxHistory > 0 {
 		maxH = client.Config().MaxHistory
 	}
 	a := &Agent{
-		bus:        bus,
-		sender:     sender,
-		client:     client,
-		maxHistory: maxH,
-		history:    make(map[protocol.UUID][]llm.Message),
+		bus:           bus,
+		sender:        sender,
+		stateProvider: stateProvider,
+		client:        client,
+		maxHistory:    maxH,
+		history:       make(map[protocol.UUID][]llm.Message),
 	}
 	bus.Subscribe(event.EventChat, a.ChatEventHandler)
 	return a
