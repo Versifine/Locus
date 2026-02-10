@@ -4,15 +4,23 @@ import (
 	"bufio"
 	"log/slog"
 	"strings"
+	"sync"
 
 	"github.com/Versifine/locus/internal/event"
 	"github.com/Versifine/locus/internal/llm"
+	"github.com/Versifine/locus/internal/protocol"
 )
 
+const defaultMaxHistory = 20
+
 type Agent struct {
-	bus    *event.Bus
-	sender MessageSender
-	client *llm.Client
+	bus        *event.Bus
+	sender     MessageSender
+	client     *llm.Client
+	maxHistory int
+
+	mu      sync.Mutex
+	history map[protocol.UUID][]llm.Message
 }
 
 type MessageSender interface {
@@ -20,33 +28,65 @@ type MessageSender interface {
 }
 
 func NewAgent(bus *event.Bus, sender MessageSender, client *llm.Client) *Agent {
-	a := &Agent{bus: bus, sender: sender, client: client}
+	maxH := defaultMaxHistory
+	if client != nil && client.Config().MaxHistory > 0 {
+		maxH = client.Config().MaxHistory
+	}
+	a := &Agent{
+		bus:        bus,
+		sender:     sender,
+		client:     client,
+		maxHistory: maxH,
+		history:    make(map[protocol.UUID][]llm.Message),
+	}
 	bus.Subscribe(event.EventChat, a.ChatEventHandler)
 	return a
 }
-func (a *Agent) handleSourcePlayer(event *event.ChatEvent) {
-	messages := []llm.Message{
-		{Role: "system", Content: a.client.Config().SystemPrompt},
-		{
-			Role:    "user",
-			Content: event.Message},
+func (a *Agent) appendHistory(uuid protocol.UUID, msg llm.Message) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.history[uuid] = append(a.history[uuid], msg)
+	if len(a.history[uuid]) > a.maxHistory {
+		a.history[uuid] = a.history[uuid][len(a.history[uuid])-a.maxHistory:]
 	}
-	response, err := a.client.Chat(event.Ctx, messages)
+}
+
+func (a *Agent) getHistory(uuid protocol.UUID) []llm.Message {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	hist := make([]llm.Message, len(a.history[uuid]))
+	copy(hist, a.history[uuid])
+	return hist
+}
+
+func (a *Agent) handleSourcePlayer(evt *event.ChatEvent) {
+	// 1. 追加 user 消息到历史
+	a.appendHistory(evt.UUID, llm.Message{Role: "user", Content: evt.Message})
+
+	// 2. 组装 system + 历史 发给 LLM
+	hist := a.getHistory(evt.UUID)
+	messages := make([]llm.Message, 0, len(hist)+1)
+	messages = append(messages, llm.Message{Role: "system", Content: a.client.Config().SystemPrompt})
+	messages = append(messages, hist...)
+
+	response, err := a.client.Chat(evt.Ctx, messages)
 	if err != nil {
 		slog.Error("LLM chat error", "error", err)
 		return
 	}
+
+	// 3. 追加 assistant 回复到历史（存完整回复）
+	a.appendHistory(evt.UUID, llm.Message{Role: "assistant", Content: response})
+
+	// 4. 拆段发送到游戏
 	scanner := bufio.NewScanner(strings.NewReader(response))
 	for scanner.Scan() {
-		line := scanner.Text()
-		line = strings.TrimSpace(line)
+		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
 			continue
 		}
-		lines := SplitByRunes(line, 250)
-		for _, l := range lines {
-			err := a.sender.SendMsgToServer(l)
-			if err != nil {
+		for _, l := range SplitByRunes(line, 250) {
+			if err := a.sender.SendMsgToServer(l); err != nil {
 				slog.Error("Failed to send message to server", "error", err)
 			}
 		}
