@@ -28,6 +28,7 @@ type Agent struct {
 type MessageSender interface {
 	SendMsgToServer(message string) error
 }
+
 type StateProvider interface {
 	GetState() world.Snapshot
 }
@@ -37,6 +38,7 @@ func NewAgent(bus *event.Bus, sender MessageSender, stateProvider StateProvider,
 	if client != nil && client.Config().MaxHistory > 0 {
 		maxH = client.Config().MaxHistory
 	}
+
 	a := &Agent{
 		bus:           bus,
 		sender:        sender,
@@ -48,6 +50,7 @@ func NewAgent(bus *event.Bus, sender MessageSender, stateProvider StateProvider,
 	bus.Subscribe(event.EventChat, a.ChatEventHandler)
 	return a
 }
+
 func (a *Agent) appendHistory(uuid protocol.UUID, msg llm.Message) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -65,15 +68,43 @@ func (a *Agent) getHistory(uuid protocol.UUID) []llm.Message {
 	return hist
 }
 
+func buildMessages(systemPrompt string, history []llm.Message, stateStr string, userMessage string) []llm.Message {
+	messages := make([]llm.Message, 0, len(history)+3)
+	messages = append(messages, llm.Message{Role: "system", Content: systemPrompt})
+
+	// Keep prior turns, but not the current user message (already in history tail).
+	if len(history) > 1 {
+		messages = append(messages, history[:len(history)-1]...)
+	}
+
+	messages = append(messages, llm.Message{
+		Role: "system",
+		Content: "[当前状态]\n" + stateStr + "\n\n[回答约束]\n" +
+			"- 只回答玩家这一次的问题，不要主动扩展未被询问的内容。\n" +
+			"- 如果玩家是问候或闲聊，先正常简短回应，不要主动播报实体列表。\n" +
+			"- 涉及数量或距离时，优先给结论，再补充必要细节。",
+	})
+	messages = append(messages, llm.Message{Role: "user", Content: userMessage})
+	return messages
+}
+
 func (a *Agent) handleSourcePlayer(evt *event.ChatEvent) {
-	// 1. 追加 user 消息到历史
+	if a.client == nil {
+		slog.Error("LLM client is nil")
+		return
+	}
+	if a.stateProvider == nil {
+		slog.Error("StateProvider is nil")
+		return
+	}
+
+	// 1) append current user message into per-player history
 	a.appendHistory(evt.UUID, llm.Message{Role: "user", Content: evt.Message})
 
-	// 2. 组装 system + 历史 发给 LLM
+	// 2) build LLM messages with a dedicated system state message
 	hist := a.getHistory(evt.UUID)
-	messages := make([]llm.Message, 0, len(hist)+1)
-	messages = append(messages, llm.Message{Role: "system", Content: a.client.Config().SystemPrompt + "\n当前状态:\n" + a.stateProvider.GetState().String()})
-	messages = append(messages, hist...)
+	stateStr := a.stateProvider.GetState().String()
+	messages := buildMessages(a.client.Config().SystemPrompt, hist, stateStr, evt.Message)
 
 	response, err := a.client.Chat(evt.Ctx, messages)
 	if err != nil {
@@ -81,10 +112,10 @@ func (a *Agent) handleSourcePlayer(evt *event.ChatEvent) {
 		return
 	}
 
-	// 3. 追加 assistant 回复到历史（存完整回复）
+	// 3) append assistant reply to history
 	a.appendHistory(evt.UUID, llm.Message{Role: "assistant", Content: response})
 
-	// 4. 拆段发送到游戏
+	// 4) split multiline response and send line by line
 	scanner := bufio.NewScanner(strings.NewReader(response))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -98,24 +129,22 @@ func (a *Agent) handleSourcePlayer(evt *event.ChatEvent) {
 		}
 	}
 }
+
 func SplitByRunes(s string, limit int) []string {
 	if limit <= 0 {
 		return nil
 	}
 
 	var chunks []string
-	runes := []rune(s) // 转为 rune 切片以正确处理中文/Emoji
-
+	runes := []rune(s)
 	for len(runes) > 0 {
 		if len(runes) > limit {
-			// 还没切完，切一刀，剩下的继续循环
 			chunks = append(chunks, string(runes[:limit]))
 			runes = runes[limit:]
-		} else {
-			// 剩下的不足 limit，直接全部放入
-			chunks = append(chunks, string(runes))
-			runes = nil // 结束循环
+			continue
 		}
+		chunks = append(chunks, string(runes))
+		runes = nil
 	}
 	return chunks
 }
@@ -130,20 +159,17 @@ func (a *Agent) ChatEventHandler(raw any) {
 		slog.Error("MessageSender is nil")
 		return
 	}
-	// 在这里处理聊天事件，例如记录日志或修改消息内容
+
 	slog.Info("Chat event", "username", chatEvent.Username, "uuid", chatEvent.UUID.String(), "message", chatEvent.Message, "source", chatEvent.Source.String())
 	switch chatEvent.Source {
 	case event.SourcePlayer:
-		// 处理玩家消息
-		// 例如，可以将消息发送到 LLM 客户端进行处理
 		go a.handleSourcePlayer(chatEvent)
-
 	case event.SourceSystem:
-	// 处理系统消息
+		// reserved for system messages
 	case event.SourcePlayerCmd:
-	// 处理玩家命令消息
+		// reserved for player command messages
 	case event.SourcePlayerSend:
-	// 处理玩家发送消息
+		// reserved for player send messages
 	default:
 		slog.Warn("Unknown chat event source", "source", chatEvent.Source.String())
 	}

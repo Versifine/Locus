@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Versifine/locus/internal/event"
+	"github.com/Versifine/locus/internal/llm"
 )
 
 // TestNewAgent 测试创建 Agent
@@ -104,4 +105,33 @@ func TestAgentSendsReply(t *testing.T) {
 			})
 		}
 	})
+}
+
+func TestBuildMessages_SeparatesStateAndUserMessage(t *testing.T) {
+	history := []llm.Message{
+		{Role: "user", Content: "之前的问题"},
+		{Role: "assistant", Content: "之前的回答"},
+		{Role: "user", Content: "你好"},
+	}
+
+	msgs := buildMessages("sys", history, "Snapshot ...", "你好")
+	if len(msgs) != 5 {
+		t.Fatalf("len(msgs) = %d, want 5", len(msgs))
+	}
+
+	if msgs[0].Role != "system" || msgs[0].Content != "sys" {
+		t.Fatalf("msgs[0] = %+v, want system prompt", msgs[0])
+	}
+	if msgs[1].Role != "user" || msgs[1].Content != "之前的问题" {
+		t.Fatalf("msgs[1] = %+v, want prior user", msgs[1])
+	}
+	if msgs[2].Role != "assistant" || msgs[2].Content != "之前的回答" {
+		t.Fatalf("msgs[2] = %+v, want prior assistant", msgs[2])
+	}
+	if msgs[3].Role != "system" {
+		t.Fatalf("msgs[3].Role = %q, want %q", msgs[3].Role, "system")
+	}
+	if msgs[4].Role != "user" || msgs[4].Content != "你好" {
+		t.Fatalf("msgs[4] = %+v, want current user message", msgs[4])
+	}
 }
