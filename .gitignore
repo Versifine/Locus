@@ -49,6 +49,7 @@ __debug_bin*
 #
 TASKS.md
 docs/PRD.md
+AGENTS.md
 
 # VSCode
 .vscode/

@@ -226,13 +226,19 @@ func (b *Bot) handlePlayState(ctx context.Context) error {
 				return err
 			}
 		case protocol.S2CUpdateHealth:
-			// 处理健康和饥饿更新
 			packetRdr := bytes.NewReader(packet.Payload)
 			updateHealth, err := protocol.ParseUpdateHealth(packetRdr)
 			if err != nil {
 				return err
 			}
 			b.worldState.UpdateHealth(updateHealth.Health, updateHealth.Food)
+			if updateHealth.Health <= 0 {
+				slog.Info("Bot died, sending respawn")
+				respawnPacket := protocol.CreateClientCommandPacket(0)
+				if err := b.writePacket(b.conn, respawnPacket, b.connState.GetThreshold()); err != nil {
+					return err
+				}
+			}
 		case protocol.S2CUpdateTime:
 			// 处理时间更新
 			packetRdr := bytes.NewReader(packet.Payload)
@@ -274,6 +280,61 @@ func (b *Bot) handlePlayState(ctx context.Context) error {
 			for _, uuid := range playerRemove.Players {
 				b.worldState.RemovePlayer(uuid.String())
 			}
+		case protocol.S2CSpawnEntity:
+			packetRdr := bytes.NewReader(packet.Payload)
+			spawn, err := protocol.ParseSpawnEntity(packetRdr)
+			if err != nil {
+				slog.Warn("Failed to parse spawn entity", "error", err)
+				continue
+			}
+			b.worldState.AddEntity(world.Entity{
+				EntityID: spawn.EntityID,
+				UUID:     spawn.ObjectUUID.String(),
+				Type:     spawn.Type,
+				X:        spawn.X,
+				Y:        spawn.Y,
+				Z:        spawn.Z,
+			})
+		case protocol.S2CEntityDestroy:
+			packetRdr := bytes.NewReader(packet.Payload)
+			destroy, err := protocol.ParseEntityDestroy(packetRdr)
+			if err != nil {
+				slog.Warn("Failed to parse entity destroy", "error", err)
+				continue
+			}
+			b.worldState.RemoveEntities(destroy.EntityIDs)
+		case protocol.S2CRelEntityMove:
+			packetRdr := bytes.NewReader(packet.Payload)
+			move, err := protocol.ParseRelEntityMove(packetRdr)
+			if err != nil {
+				slog.Warn("Failed to parse rel entity move", "error", err)
+				continue
+			}
+			b.worldState.UpdateEntityPositionRelative(move.EntityID, move.DeltaX(), move.DeltaY(), move.DeltaZ())
+		case protocol.S2CEntityMoveLook:
+			packetRdr := bytes.NewReader(packet.Payload)
+			move, err := protocol.ParseEntityMoveLook(packetRdr)
+			if err != nil {
+				slog.Warn("Failed to parse entity move look", "error", err)
+				continue
+			}
+			b.worldState.UpdateEntityPositionRelative(move.EntityID, move.DeltaX(), move.DeltaY(), move.DeltaZ())
+		case protocol.S2CEntityTeleport:
+			packetRdr := bytes.NewReader(packet.Payload)
+			tp, err := protocol.ParseEntityTeleport(packetRdr)
+			if err != nil {
+				slog.Warn("Failed to parse entity teleport", "error", err)
+				continue
+			}
+			b.worldState.UpdateEntityPosition(tp.EntityID, tp.X, tp.Y, tp.Z)
+		case protocol.S2CSyncEntityPosition:
+			packetRdr := bytes.NewReader(packet.Payload)
+			syncPos, err := protocol.ParseSyncEntityPosition(packetRdr)
+			if err != nil {
+				slog.Warn("Failed to parse sync entity position", "error", err)
+				continue
+			}
+			b.worldState.UpdateEntityPosition(syncPos.EntityID, syncPos.X, syncPos.Y, syncPos.Z)
 		default:
 			slog.Debug("Unhandled packet in Play state", "packet_id", packet.ID)
 		}

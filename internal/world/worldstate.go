@@ -2,6 +2,7 @@ package world
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 )
@@ -12,7 +13,17 @@ type WorldState struct {
 	food       int32
 	gameTime   GameTime
 	playerList []Player
+	entities   map[int32]*Entity
 	mu         sync.RWMutex
+}
+
+type Entity struct {
+	EntityID int32
+	UUID     string
+	Type     int32
+	X        float64
+	Y        float64
+	Z        float64
 }
 
 type Snapshot struct {
@@ -21,6 +32,7 @@ type Snapshot struct {
 	Food       int32
 	GameTime   GameTime
 	PlayerList []Player
+	Entities   []Entity
 }
 
 func (s Snapshot) String() string {
@@ -30,30 +42,61 @@ func (s Snapshot) String() string {
 	}
 	playerInfosStr := fmt.Sprintf("[%s]", strings.Join(playerInfos, ", "))
 
+	// Build UUID→PlayerName lookup for entity cross-referencing
+	uuidToName := make(map[string]string, len(s.PlayerList))
+	for _, p := range s.PlayerList {
+		uuidToName[p.UUID] = p.Name
+	}
+
+	var entityInfos []string
+	for _, e := range s.Entities {
+		dist := math.Sqrt(
+			(e.X-s.Position.X)*(e.X-s.Position.X) +
+				(e.Y-s.Position.Y)*(e.Y-s.Position.Y) +
+				(e.Z-s.Position.Z)*(e.Z-s.Position.Z),
+		)
+		if name, ok := uuidToName[e.UUID]; ok {
+			entityInfos = append(entityInfos, fmt.Sprintf("Player:%s ID:%d (%.1f, %.1f, %.1f) dist:%.1f", name, e.EntityID, e.X, e.Y, e.Z, dist))
+		} else {
+			typeName := EntityTypeName(e.Type)
+			if typeName == "" {
+				typeName = fmt.Sprintf("Unknown(%d)", e.Type)
+			}
+			entityInfos = append(entityInfos, fmt.Sprintf("%s ID:%d (%.1f, %.1f, %.1f) dist:%.1f", typeName, e.EntityID, e.X, e.Y, e.Z, dist))
+		}
+	}
+	entitiesStr := fmt.Sprintf("[%s]", strings.Join(entityInfos, ", "))
+
 	timeOfDay := s.GameTime.WorldTime % 24000
 	hours := (timeOfDay/1000 + 6) % 24
 	minutes := (timeOfDay % 1000) * 60 / 1000
 
 	return fmt.Sprintf(
-		"Snapshot [Time: %02d:%02d] | [Position: (X: %.2f, Y: %.2f, Z: %.2f, Yaw: %.2f, Pitch: %.2f)] | [Health: %.2f] | [Food: %d] | [Players: %s]",
+		"Snapshot [Time: %02d:%02d] | [Position: (X: %.2f, Y: %.2f, Z: %.2f, Yaw: %.2f, Pitch: %.2f)] | [Health: %.2f] | [Food: %d] | [Players: %s] | [Entities(%d): %s]",
 		hours, minutes,
 		s.Position.X, s.Position.Y, s.Position.Z, s.Position.Yaw, s.Position.Pitch,
 		s.Health,
 		s.Food,
 		playerInfosStr,
+		len(s.Entities),
+		entitiesStr,
 	)
 }
 
 func (ws *WorldState) GetState() Snapshot {
 	ws.mu.RLock()
 	defer ws.mu.RUnlock()
-	// Return a copy of the world state
+	entities := make([]Entity, 0, len(ws.entities))
+	for _, e := range ws.entities {
+		entities = append(entities, *e)
+	}
 	return Snapshot{
 		Position:   ws.position,
 		Health:     ws.health,
 		Food:       ws.food,
 		GameTime:   ws.gameTime,
 		PlayerList: append([]Player(nil), ws.playerList...),
+		Entities:   entities,
 	}
 }
 
@@ -107,5 +150,42 @@ func (ws *WorldState) RemovePlayer(uuid string) {
 			ws.playerList = append(ws.playerList[:i], ws.playerList[i+1:]...)
 			break
 		}
+	}
+}
+
+func (ws *WorldState) AddEntity(e Entity) {
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+	if ws.entities == nil {
+		ws.entities = make(map[int32]*Entity)
+	}
+	ws.entities[e.EntityID] = &e
+}
+
+func (ws *WorldState) RemoveEntities(ids []int32) {
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+	for _, id := range ids {
+		delete(ws.entities, id)
+	}
+}
+
+func (ws *WorldState) UpdateEntityPosition(entityID int32, x, y, z float64) {
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+	if e, ok := ws.entities[entityID]; ok {
+		e.X = x
+		e.Y = y
+		e.Z = z
+	}
+}
+
+func (ws *WorldState) UpdateEntityPositionRelative(entityID int32, dx, dy, dz float64) {
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+	if e, ok := ws.entities[entityID]; ok {
+		e.X += dx
+		e.Y += dy
+		e.Z += dz
 	}
 }
