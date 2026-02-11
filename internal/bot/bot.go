@@ -295,6 +295,18 @@ func (b *Bot) handlePlayState(ctx context.Context) error {
 				Y:        spawn.Y,
 				Z:        spawn.Z,
 			})
+		case protocol.S2CEntityMetadata:
+			packetRdr := bytes.NewReader(packet.Payload)
+			entityID, itemID, found, err := protocol.ParseEntityMetadataItemSlot(packetRdr)
+			if err != nil {
+				slog.Warn("Failed to parse entity metadata", "error", err)
+				continue
+			}
+			if found {
+				itemName := world.ItemName(itemID)
+				b.worldState.UpdateEntityItemName(entityID, itemName)
+				slog.Debug("Updated item entity metadata", "entity_id", entityID, "item_id", itemID, "item_name", itemName)
+			}
 		case protocol.S2CEntityDestroy:
 			packetRdr := bytes.NewReader(packet.Payload)
 			destroy, err := protocol.ParseEntityDestroy(packetRdr)

@@ -304,6 +304,186 @@ func ParseSyncEntityPosition(r io.Reader) (*SyncEntityPosition, error) {
 	}, nil
 }
 
+// ParseEntityMetadataItemSlot extracts an item ID from Item entity metadata (index 8, type 7).
+// It returns found=false when metadata cannot be parsed safely or does not contain a usable item slot.
+func ParseEntityMetadataItemSlot(r io.Reader) (entityID int32, itemID int32, found bool, err error) {
+	entityID, err = ReadVarint(r)
+	if err != nil {
+		return 0, 0, false, err
+	}
+
+	for {
+		key, err := ReadByte(r)
+		if err != nil {
+			return entityID, 0, false, err
+		}
+		if key == 0xFF {
+			return entityID, 0, false, nil
+		}
+
+		metaType, err := ReadVarint(r)
+		if err != nil {
+			return entityID, 0, false, err
+		}
+
+		if key == 8 && metaType == 7 {
+			itemCount, err := ReadVarint(r)
+			if err != nil {
+				return entityID, 0, false, err
+			}
+			if itemCount <= 0 {
+				return entityID, 0, false, nil
+			}
+			itemID, err := ReadVarint(r)
+			if err != nil {
+				return entityID, 0, false, err
+			}
+			// Validate Slot header shape, component payload is intentionally ignored.
+			if _, err := ReadVarint(r); err != nil {
+				return entityID, 0, false, err
+			}
+			if _, err := ReadVarint(r); err != nil {
+				return entityID, 0, false, err
+			}
+			return entityID, itemID, true, nil
+		}
+
+		skipped, err := skipEntityMetadataValue(r, metaType)
+		if err != nil {
+			return entityID, 0, false, err
+		}
+		if !skipped {
+			// Unknown/unsupported metadata type: stop safely without crashing.
+			return entityID, 0, false, nil
+		}
+	}
+}
+
+func skipEntityMetadataValue(r io.Reader, metaType int32) (bool, error) {
+	switch metaType {
+	case 0: // Byte
+		return true, discardBytes(r, 1)
+	case 1: // VarInt
+		_, err := ReadVarint(r)
+		return true, err
+	case 2: // VarLong
+		_, err := ReadVarLong(r)
+		return true, err
+	case 3: // Float
+		return true, discardBytes(r, 4)
+	case 4: // String
+		_, err := ReadString(r)
+		return true, err
+	case 5: // Component (anonymousNbt)
+		_, err := ReadAnonymousNBT(r)
+		return true, err
+	case 6: // Optional Component
+		hasValue, err := ReadBool(r)
+		if err != nil {
+			return true, err
+		}
+		if !hasValue {
+			return true, nil
+		}
+		_, err = ReadAnonymousNBT(r)
+		return true, err
+	case 7: // Slot
+		// Generic Slot skipping requires full slot-component decoding.
+		// We only support the target slot (key=8,type=7) in ParseEntityMetadataItemSlot.
+		return false, nil
+	case 8: // Boolean
+		_, err := ReadBool(r)
+		return true, err
+	case 9: // Rotations
+		return true, discardBytes(r, 12)
+	case 10: // Block Position (packed i64)
+		return true, discardBytes(r, 8)
+	case 11: // Optional Block Position
+		hasValue, err := ReadBool(r)
+		if err != nil {
+			return true, err
+		}
+		if !hasValue {
+			return true, nil
+		}
+		return true, discardBytes(r, 8)
+	case 12: // Direction
+		_, err := ReadVarint(r)
+		return true, err
+	case 13: // Optional UUID
+		hasValue, err := ReadBool(r)
+		if err != nil {
+			return true, err
+		}
+		if !hasValue {
+			return true, nil
+		}
+		return true, discardBytes(r, 16)
+	case 14: // Block State
+		_, err := ReadVarint(r)
+		return true, err
+	case 15: // Optional Block State
+		_, err := ReadVarint(r)
+		return true, err
+	case 19: // Optional Unsigned Int (optvarint)
+		_, err := ReadVarint(r)
+		return true, err
+	case 20: // Pose
+		_, err := ReadVarint(r)
+		return true, err
+	case 21: // Cat Variant
+		_, err := ReadVarint(r)
+		return true, err
+	case 22: // Cow Variant
+		_, err := ReadVarint(r)
+		return true, err
+	case 23: // Wolf Variant
+		_, err := ReadVarint(r)
+		return true, err
+	case 24: // Wolf Sound Variant
+		_, err := ReadVarint(r)
+		return true, err
+	case 25: // Frog Variant
+		_, err := ReadVarint(r)
+		return true, err
+	case 26: // Pig Variant
+		_, err := ReadVarint(r)
+		return true, err
+	case 27: // Chicken Variant
+		_, err := ReadVarint(r)
+		return true, err
+	case 28: // Zombie Nautilus Variant
+		_, err := ReadVarint(r)
+		return true, err
+	case 31: // Sniffer State
+		_, err := ReadVarint(r)
+		return true, err
+	case 32: // Armadillo State
+		_, err := ReadVarint(r)
+		return true, err
+	case 33: // Copper Golem State
+		_, err := ReadVarint(r)
+		return true, err
+	case 34: // Weathering Copper Golem State
+		_, err := ReadVarint(r)
+		return true, err
+	case 35: // Vector3 (3 x float32)
+		return true, discardBytes(r, 12)
+	case 36: // Quaternion (4 x float32)
+		return true, discardBytes(r, 16)
+	case 38: // Humanoid Arm
+		_, err := ReadVarint(r)
+		return true, err
+	default:
+		return false, nil
+	}
+}
+
+func discardBytes(r io.Reader, n int64) error {
+	_, err := io.CopyN(io.Discard, r, n)
+	return err
+}
+
 // CreateClientCommandPacket creates a C2S Client Command packet.
 // actionId 0 = Perform Respawn.
 func CreateClientCommandPacket(actionID int32) *Packet {

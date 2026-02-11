@@ -28,21 +28,22 @@ const (
 	C2SConfigKeepAlive         = 0x04
 
 	// Play (S→C)
-	S2CSpawnEntity       = 0x01
+	S2CSpawnEntity        = 0x01
 	S2CSyncEntityPosition = 0x23
-	S2CPlayKeepAlive     = 0x2b
-	S2CRelEntityMove     = 0x33
-	S2CEntityMoveLook    = 0x34
-	S2CPlayerChatMessage = 0x3f
-	S2CPlayerRemove      = 0x43
-	S2CPlayerInfo        = 0x44
-	S2CPlayerPosition    = 0x46
-	S2CEntityDestroy     = 0x4b
-	S2CExperience        = 0x65
-	S2CUpdateHealth      = 0x66
-	S2CUpdateTime        = 0x6f
-	S2CSystemChatMessage = 0x77
-	S2CEntityTeleport    = 0x7b
+	S2CPlayKeepAlive      = 0x2b
+	S2CRelEntityMove      = 0x33
+	S2CEntityMoveLook     = 0x34
+	S2CPlayerChatMessage  = 0x3f
+	S2CPlayerRemove       = 0x43
+	S2CPlayerInfo         = 0x44
+	S2CPlayerPosition     = 0x46
+	S2CEntityDestroy      = 0x4b
+	S2CEntityMetadata     = 0x61
+	S2CExperience         = 0x65
+	S2CUpdateHealth       = 0x66
+	S2CUpdateTime         = 0x6f
+	S2CSystemChatMessage  = 0x77
+	S2CEntityTeleport     = 0x7b
 
 	// Play (C→S)
 	C2STeleportConfirm       = 0x00

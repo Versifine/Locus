@@ -8,13 +8,14 @@ import (
 )
 
 type WorldState struct {
-	position   Position
-	health     float32
-	food       int32
-	gameTime   GameTime
-	playerList []Player
-	entities   map[int32]*Entity
-	mu         sync.RWMutex
+	position         Position
+	health           float32
+	food             int32
+	gameTime         GameTime
+	playerList       []Player
+	entities         map[int32]*Entity
+	pendingItemNames map[int32]string
+	mu               sync.RWMutex
 }
 
 type Entity struct {
@@ -24,6 +25,7 @@ type Entity struct {
 	X        float64
 	Y        float64
 	Z        float64
+	ItemName string
 }
 
 type Snapshot struct {
@@ -59,6 +61,9 @@ func (s Snapshot) String() string {
 			entityInfos = append(entityInfos, fmt.Sprintf("Player:%s ID:%d (%.1f, %.1f, %.1f) dist:%.1f", name, e.EntityID, e.X, e.Y, e.Z, dist))
 		} else {
 			typeName := EntityTypeName(e.Type)
+			if e.Type == 71 && e.ItemName != "" {
+				typeName = fmt.Sprintf("Item(%s)", e.ItemName)
+			}
 			if typeName == "" {
 				typeName = fmt.Sprintf("Unknown(%d)", e.Type)
 			}
@@ -159,6 +164,15 @@ func (ws *WorldState) AddEntity(e Entity) {
 	if ws.entities == nil {
 		ws.entities = make(map[int32]*Entity)
 	}
+	if ws.pendingItemNames == nil {
+		ws.pendingItemNames = make(map[int32]string)
+	}
+	if pending, ok := ws.pendingItemNames[e.EntityID]; ok {
+		if e.Type == 71 {
+			e.ItemName = pending
+		}
+		delete(ws.pendingItemNames, e.EntityID)
+	}
 	ws.entities[e.EntityID] = &e
 }
 
@@ -167,6 +181,9 @@ func (ws *WorldState) RemoveEntities(ids []int32) {
 	defer ws.mu.Unlock()
 	for _, id := range ids {
 		delete(ws.entities, id)
+		if ws.pendingItemNames != nil {
+			delete(ws.pendingItemNames, id)
+		}
 	}
 }
 
@@ -188,4 +205,17 @@ func (ws *WorldState) UpdateEntityPositionRelative(entityID int32, dx, dy, dz fl
 		e.Y += dy
 		e.Z += dz
 	}
+}
+
+func (ws *WorldState) UpdateEntityItemName(entityID int32, itemName string) {
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+	if e, ok := ws.entities[entityID]; ok && e.Type == 71 {
+		e.ItemName = itemName
+		return
+	}
+	if ws.pendingItemNames == nil {
+		ws.pendingItemNames = make(map[int32]string)
+	}
+	ws.pendingItemNames[entityID] = itemName
 }
