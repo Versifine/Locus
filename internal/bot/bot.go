@@ -68,6 +68,10 @@ type Bot struct {
 
 	playerLoadedMu   sync.Mutex
 	sentPlayerLoaded bool
+
+	digMu              sync.Mutex
+	nextDigSequence    int32
+	pendingDigRequests map[int32]pendingDigRequest
 }
 
 type footBlockSnapshot struct {
@@ -86,6 +90,13 @@ type chunkBatchSummary struct {
 	UnloadEvents int
 	Duration     time.Duration
 	FinishedAt   time.Time
+}
+
+type pendingDigRequest struct {
+	Status   int32
+	Location protocol.BlockPos
+	Face     int8
+	SentAt   time.Time
 }
 
 func NewBot(serverAddr, username string) *Bot {
@@ -332,6 +343,8 @@ func (b *Bot) handlePlayState(ctx context.Context) error {
 			b.handleTileEntityData(packet.Payload)
 		case protocol.S2CBlockAction:
 			b.handleBlockAction(packet.Payload)
+		case protocol.S2CAcknowledgePlayerDigging:
+			b.handleAcknowledgePlayerDigging(packet.Payload)
 		case protocol.S2CUpdateHealth:
 			packetRdr := bytes.NewReader(packet.Payload)
 			updateHealth, err := protocol.ParseUpdateHealth(packetRdr)
@@ -558,6 +571,7 @@ func (b *Bot) handleRespawn(payload []byte) {
 	current := b.worldState.GetState()
 	b.worldState.UpdateDimensionContext(respawn.WorldState.Name, current.SimulationDistance)
 	b.resetPlayerLoaded()
+	b.resetPendingDigRequests("respawn")
 
 	if b.blockStore != nil {
 		b.blockStore.Clear()
@@ -767,6 +781,38 @@ func (b *Bot) handleBlockAction(payload []byte) {
 	)
 }
 
+func (b *Bot) handleAcknowledgePlayerDigging(payload []byte) {
+	packetRdr := bytes.NewReader(payload)
+	ack, err := protocol.ParseAcknowledgePlayerDigging(packetRdr)
+	if err != nil {
+		slog.Warn("Failed to parse acknowledge player digging", "error", err)
+		return
+	}
+
+	b.digMu.Lock()
+	req, ok := b.pendingDigRequests[ack.SequenceID]
+	if ok {
+		delete(b.pendingDigRequests, ack.SequenceID)
+	}
+	b.digMu.Unlock()
+
+	if !ok {
+		slog.Warn("Received unknown or stale digging ack", "sequence_id", ack.SequenceID)
+		return
+	}
+
+	slog.Debug(
+		"Digging ack reconciled",
+		"sequence_id", ack.SequenceID,
+		"status", req.Status,
+		"x", req.Location.X,
+		"y", req.Location.Y,
+		"z", req.Location.Z,
+		"face", req.Face,
+		"latency_ms", time.Since(req.SentAt).Milliseconds(),
+	)
+}
+
 func (b *Bot) logBlockUnderFeetState() {
 	if b.blockStore == nil || b.worldState == nil {
 		return
@@ -875,6 +921,45 @@ func (b *Bot) GetBlockState(x, y, z int) (int32, bool) {
 		return 0, false
 	}
 	return b.blockStore.GetBlockState(x, y, z)
+}
+
+func (b *Bot) SendBlockDig(status int32, location protocol.BlockPos, face int8) (int32, error) {
+	if b.conn == nil || b.connState == nil {
+		return 0, fmt.Errorf("connection is not initialized")
+	}
+
+	b.digMu.Lock()
+	sequence := b.nextDigSequence
+	b.nextDigSequence++
+	if b.pendingDigRequests == nil {
+		b.pendingDigRequests = make(map[int32]pendingDigRequest)
+	}
+	b.pendingDigRequests[sequence] = pendingDigRequest{
+		Status:   status,
+		Location: location,
+		Face:     face,
+		SentAt:   time.Now(),
+	}
+	b.digMu.Unlock()
+
+	packet := protocol.CreateBlockDigPacket(status, location, face, sequence)
+	if err := b.writePacket(b.conn, packet, b.connState.GetThreshold()); err != nil {
+		b.digMu.Lock()
+		delete(b.pendingDigRequests, sequence)
+		b.digMu.Unlock()
+		return 0, err
+	}
+
+	slog.Debug(
+		"Sent block dig",
+		"sequence_id", sequence,
+		"status", status,
+		"x", location.X,
+		"y", location.Y,
+		"z", location.Z,
+		"face", face,
+	)
+	return sequence, nil
 }
 
 func normalizeSectionsForBlockStore(parsed []protocol.ChunkSection) ([]world.ChunkSection, error) {
@@ -1177,4 +1262,17 @@ func (b *Bot) finishChunkBatch(batchSize int32) chunkBatchSummary {
 		"duration_ms", summary.Duration.Milliseconds(),
 	)
 	return summary
+}
+
+func (b *Bot) resetPendingDigRequests(reason string) {
+	b.digMu.Lock()
+	pendingCount := len(b.pendingDigRequests)
+	if pendingCount > 0 {
+		b.pendingDigRequests = make(map[int32]pendingDigRequest)
+	}
+	b.digMu.Unlock()
+
+	if pendingCount > 0 {
+		slog.Warn("Cleared pending dig requests", "reason", reason, "count", pendingCount)
+	}
 }

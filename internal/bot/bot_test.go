@@ -851,6 +851,151 @@ func TestMaybeSendPlayerLoadedOnlyOnce(t *testing.T) {
 	}
 }
 
+func TestSendBlockDigSendsPacketAndTracksPendingSequence(t *testing.T) {
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+
+	bot := &Bot{
+		conn:      client,
+		connState: protocol.NewConnState(),
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		packet, err := protocol.ReadPacket(server, -1)
+		if err != nil {
+			errCh <- err
+			return
+		}
+		if packet.ID != protocol.C2SBlockDig {
+			errCh <- errors.New("unexpected packet id")
+			return
+		}
+
+		r := bytes.NewReader(packet.Payload)
+		status, err := protocol.ReadVarint(r)
+		if err != nil {
+			errCh <- err
+			return
+		}
+		rawPos, err := protocol.ReadInt64(r)
+		if err != nil {
+			errCh <- err
+			return
+		}
+		face, err := protocol.ReadByte(r)
+		if err != nil {
+			errCh <- err
+			return
+		}
+		sequence, err := protocol.ReadVarint(r)
+		if err != nil {
+			errCh <- err
+			return
+		}
+
+		x, y, z := decodePackedPositionForBotTest(rawPos)
+		if status != 0 || x != -3 || y != 64 || z != 9 || int8(face) != 1 || sequence != 0 {
+			errCh <- errors.New("unexpected block dig payload")
+			return
+		}
+		errCh <- nil
+	}()
+
+	seq, err := bot.SendBlockDig(0, protocol.BlockPos{X: -3, Y: 64, Z: 9}, 1)
+	if err != nil {
+		t.Fatalf("SendBlockDig failed: %v", err)
+	}
+	if seq != 0 {
+		t.Fatalf("sequence = %d, want 0", seq)
+	}
+
+	bot.digMu.Lock()
+	pendingCount := len(bot.pendingDigRequests)
+	_, exists := bot.pendingDigRequests[seq]
+	bot.digMu.Unlock()
+	if pendingCount != 1 || !exists {
+		t.Fatalf("pending sequences mismatch: count=%d exists=%v", pendingCount, exists)
+	}
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("block dig packet validation failed: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for block dig packet")
+	}
+}
+
+func TestHandleAcknowledgePlayerDiggingClearsPending(t *testing.T) {
+	bot := &Bot{
+		pendingDigRequests: map[int32]pendingDigRequest{
+			42: {
+				Status:   0,
+				Location: protocol.BlockPos{X: 1, Y: 64, Z: 2},
+				Face:     1,
+				SentAt:   time.Now(),
+			},
+		},
+	}
+
+	payload := new(bytes.Buffer)
+	_ = protocol.WriteVarint(payload, 42)
+	bot.handleAcknowledgePlayerDigging(payload.Bytes())
+
+	bot.digMu.Lock()
+	defer bot.digMu.Unlock()
+	if len(bot.pendingDigRequests) != 0 {
+		t.Fatalf("pending dig requests should be empty after ack, got %d", len(bot.pendingDigRequests))
+	}
+}
+
+func TestHandleAcknowledgePlayerDiggingOutOfOrder(t *testing.T) {
+	bot := &Bot{
+		pendingDigRequests: map[int32]pendingDigRequest{
+			1: {SentAt: time.Now()},
+			2: {SentAt: time.Now()},
+		},
+	}
+
+	payload2 := new(bytes.Buffer)
+	_ = protocol.WriteVarint(payload2, 2)
+	bot.handleAcknowledgePlayerDigging(payload2.Bytes())
+
+	payload1 := new(bytes.Buffer)
+	_ = protocol.WriteVarint(payload1, 1)
+	bot.handleAcknowledgePlayerDigging(payload1.Bytes())
+
+	bot.digMu.Lock()
+	defer bot.digMu.Unlock()
+	if len(bot.pendingDigRequests) != 0 {
+		t.Fatalf("pending dig requests should be empty after out-of-order ack, got %d", len(bot.pendingDigRequests))
+	}
+}
+
+func TestHandleAcknowledgePlayerDiggingUnknownSequenceKeepsPending(t *testing.T) {
+	bot := &Bot{
+		pendingDigRequests: map[int32]pendingDigRequest{
+			1: {SentAt: time.Now()},
+		},
+	}
+
+	payload := new(bytes.Buffer)
+	_ = protocol.WriteVarint(payload, 99)
+	bot.handleAcknowledgePlayerDigging(payload.Bytes())
+
+	bot.digMu.Lock()
+	defer bot.digMu.Unlock()
+	if len(bot.pendingDigRequests) != 1 {
+		t.Fatalf("pending dig requests should remain unchanged, got %d", len(bot.pendingDigRequests))
+	}
+	if _, ok := bot.pendingDigRequests[1]; !ok {
+		t.Fatalf("existing pending sequence should remain")
+	}
+}
+
 func packBlockPosition(x, y, z int32) int64 {
 	ux := uint64(int64(x) & 0x3FFFFFF)
 	uy := uint64(int64(y) & 0xFFF)
@@ -925,4 +1070,17 @@ func dimensionIDForTest(dimensionName string) int32 {
 	default:
 		return 0
 	}
+}
+
+func decodePackedPositionForBotTest(raw int64) (int32, int32, int32) {
+	v := uint64(raw)
+	x := signExtendInt32ForBotTest(int64((v>>38)&0x3FFFFFF), 26)
+	z := signExtendInt32ForBotTest(int64((v>>12)&0x3FFFFFF), 26)
+	y := signExtendInt32ForBotTest(int64(v&0xFFF), 12)
+	return x, y, z
+}
+
+func signExtendInt32ForBotTest(value int64, bits uint) int32 {
+	shift := 64 - bits
+	return int32((value << shift) >> shift)
 }
