@@ -148,8 +148,10 @@ func TestHandleLevelChunkWithLightAndUnload(t *testing.T) {
 	}
 
 	bot := &Bot{
-		worldState: &world.WorldState{},
-		blockStore: blockStore,
+		runtimeState: runtimeState{
+			worldState: &world.WorldState{},
+			blockStore: blockStore,
+		},
 	}
 	bot.worldState.UpdatePosition(world.Position{X: 1.2, Y: 64.0, Z: 2.8})
 
@@ -254,8 +256,10 @@ func TestHandleLevelChunkWithLightStoresBlockEntities(t *testing.T) {
 		t.Fatalf("NewBlockStore failed: %v", err)
 	}
 	bot := &Bot{
-		worldState: &world.WorldState{},
-		blockStore: blockStore,
+		runtimeState: runtimeState{
+			worldState: &world.WorldState{},
+			blockStore: blockStore,
+		},
 	}
 
 	payload := buildChunkPacketPayloadWithBlockEntities(
@@ -335,8 +339,10 @@ func TestNormalizeSectionsForBlockStore16Sections(t *testing.T) {
 func TestCaptureFailedChunkPayloadLimitAndFiles(t *testing.T) {
 	captureDir := filepath.Join(t.TempDir(), "captures")
 	b := &Bot{
-		chunkCaptureDir: captureDir,
-		chunkCaptureMax: 2,
+		chunkCaptureState: chunkCaptureState{
+			chunkCaptureDir: captureDir,
+			chunkCaptureMax: 2,
+		},
 	}
 
 	payload := make([]byte, 16)
@@ -393,8 +399,10 @@ func TestHandleBlockChangeUpdatesLoadedChunk(t *testing.T) {
 		t.Fatalf("NewBlockStore failed: %v", err)
 	}
 	bot := &Bot{
-		worldState: &world.WorldState{},
-		blockStore: blockStore,
+		runtimeState: runtimeState{
+			worldState: &world.WorldState{},
+			blockStore: blockStore,
+		},
 	}
 
 	payload := buildChunkPacketPayload(t, 0, 0, map[int]int32{
@@ -427,8 +435,10 @@ func TestHandleTileEntityDataUpdatesBlockEntity(t *testing.T) {
 		t.Fatalf("NewBlockStore failed: %v", err)
 	}
 	bot := &Bot{
-		worldState: &world.WorldState{},
-		blockStore: blockStore,
+		runtimeState: runtimeState{
+			worldState: &world.WorldState{},
+			blockStore: blockStore,
+		},
 	}
 
 	payload := buildChunkPacketPayloadWithBlockEntities(
@@ -493,8 +503,10 @@ func TestHandleMultiBlockChangeUpdatesLoadedChunk(t *testing.T) {
 		t.Fatalf("NewBlockStore failed: %v", err)
 	}
 	bot := &Bot{
-		worldState: &world.WorldState{},
-		blockStore: blockStore,
+		runtimeState: runtimeState{
+			worldState: &world.WorldState{},
+			blockStore: blockStore,
+		},
 	}
 
 	payload := buildChunkPacketPayload(t, 0, 0, map[int]int32{
@@ -524,8 +536,10 @@ func TestHandleBlockActionStoresRecentAction(t *testing.T) {
 		t.Fatalf("NewBlockStore failed: %v", err)
 	}
 	bot := &Bot{
-		worldState: &world.WorldState{},
-		blockStore: blockStore,
+		runtimeState: runtimeState{
+			worldState: &world.WorldState{},
+			blockStore: blockStore,
+		},
 	}
 
 	payload := buildChunkPacketPayload(t, 0, 0, map[int]int32{7: 1234})
@@ -554,8 +568,10 @@ func TestHandlePlayLoginAndRespawnUpdatesDimensionAndClearsChunks(t *testing.T) 
 	}
 
 	bot := &Bot{
-		worldState: &world.WorldState{},
-		blockStore: blockStore,
+		runtimeState: runtimeState{
+			worldState: &world.WorldState{},
+			blockStore: blockStore,
+		},
 	}
 
 	chunkPayload := buildChunkPacketPayload(t, 0, 0, map[int]int32{7: 1234})
@@ -611,8 +627,10 @@ func TestHandleChunkBatchFinishedSendsAck(t *testing.T) {
 	defer client.Close()
 
 	bot := &Bot{
-		conn:      client,
-		connState: protocol.NewConnState(),
+		connectionState: connectionState{
+			conn:      client,
+			connState: protocol.NewConnState(),
+		},
 	}
 
 	errCh := make(chan error, 1)
@@ -665,10 +683,14 @@ func TestHandleChunkBatchStartChunkFinishedFlow(t *testing.T) {
 	}
 
 	bot := &Bot{
-		conn:       client,
-		connState:  protocol.NewConnState(),
-		worldState: &world.WorldState{},
-		blockStore: blockStore,
+		connectionState: connectionState{
+			conn:      client,
+			connState: protocol.NewConnState(),
+		},
+		runtimeState: runtimeState{
+			worldState: &world.WorldState{},
+			blockStore: blockStore,
+		},
 	}
 
 	errCh := make(chan error, 1)
@@ -746,8 +768,10 @@ func TestHandleChunkBatchFinishedWithoutStartStillAcks(t *testing.T) {
 	defer client.Close()
 
 	bot := &Bot{
-		conn:      client,
-		connState: protocol.NewConnState(),
+		connectionState: connectionState{
+			conn:      client,
+			connState: protocol.NewConnState(),
+		},
 	}
 
 	errCh := make(chan error, 1)
@@ -805,8 +829,10 @@ func TestMaybeSendPlayerLoadedOnlyOnce(t *testing.T) {
 	defer client.Close()
 
 	bot := &Bot{
-		conn:      client,
-		connState: protocol.NewConnState(),
+		connectionState: connectionState{
+			conn:      client,
+			connState: protocol.NewConnState(),
+		},
 	}
 
 	errCh := make(chan error, 1)
@@ -857,8 +883,10 @@ func TestSendBlockDigSendsPacketAndTracksPendingSequence(t *testing.T) {
 	defer client.Close()
 
 	bot := &Bot{
-		conn:      client,
-		connState: protocol.NewConnState(),
+		connectionState: connectionState{
+			conn:      client,
+			connState: protocol.NewConnState(),
+		},
 	}
 
 	errCh := make(chan error, 1)
@@ -931,12 +959,14 @@ func TestSendBlockDigSendsPacketAndTracksPendingSequence(t *testing.T) {
 
 func TestHandleAcknowledgePlayerDiggingClearsPending(t *testing.T) {
 	bot := &Bot{
-		pendingDigRequests: map[int32]pendingDigRequest{
-			42: {
-				Status:   0,
-				Location: protocol.BlockPos{X: 1, Y: 64, Z: 2},
-				Face:     1,
-				SentAt:   time.Now(),
+		digSyncState: digSyncState{
+			pendingDigRequests: map[int32]pendingDigRequest{
+				42: {
+					Status:   0,
+					Location: protocol.BlockPos{X: 1, Y: 64, Z: 2},
+					Face:     1,
+					SentAt:   time.Now(),
+				},
 			},
 		},
 	}
@@ -954,9 +984,11 @@ func TestHandleAcknowledgePlayerDiggingClearsPending(t *testing.T) {
 
 func TestHandleAcknowledgePlayerDiggingOutOfOrder(t *testing.T) {
 	bot := &Bot{
-		pendingDigRequests: map[int32]pendingDigRequest{
-			1: {SentAt: time.Now()},
-			2: {SentAt: time.Now()},
+		digSyncState: digSyncState{
+			pendingDigRequests: map[int32]pendingDigRequest{
+				1: {SentAt: time.Now()},
+				2: {SentAt: time.Now()},
+			},
 		},
 	}
 
@@ -977,8 +1009,10 @@ func TestHandleAcknowledgePlayerDiggingOutOfOrder(t *testing.T) {
 
 func TestHandleAcknowledgePlayerDiggingUnknownSequenceKeepsPending(t *testing.T) {
 	bot := &Bot{
-		pendingDigRequests: map[int32]pendingDigRequest{
-			1: {SentAt: time.Now()},
+		digSyncState: digSyncState{
+			pendingDigRequests: map[int32]pendingDigRequest{
+				1: {SentAt: time.Now()},
+			},
 		},
 	}
 
