@@ -40,6 +40,40 @@ func TestLoadStateSolidityFromBlocksJSON(t *testing.T) {
 	}
 }
 
+func TestLoadStateMetadataFromBlocksJSON(t *testing.T) {
+	tmpDir := t.TempDir()
+	blocksJSONPath := filepath.Join(tmpDir, "blocks.json")
+
+	content := `[
+  {"name":"air","displayName":"Air","minStateId":0,"maxStateId":0,"boundingBox":"empty"},
+  {"name":"stone","displayName":"Stone","minStateId":1,"maxStateId":3,"boundingBox":"block"},
+  {"name":"short_grass","displayName":"Short Grass","minStateId":4,"maxStateId":5,"boundingBox":"empty"}
+]`
+	if err := os.WriteFile(blocksJSONPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write temp blocks.json failed: %v", err)
+	}
+
+	solidByStateID, nameByStateID, err := LoadStateMetadataFromBlocksJSON(blocksJSONPath)
+	if err != nil {
+		t.Fatalf("LoadStateMetadataFromBlocksJSON failed: %v", err)
+	}
+	if len(solidByStateID) != 6 {
+		t.Fatalf("len(solidByStateID) = %d, want 6", len(solidByStateID))
+	}
+	if len(nameByStateID) != 6 {
+		t.Fatalf("len(nameByStateID) = %d, want 6", len(nameByStateID))
+	}
+	if nameByStateID[0] != "Air" {
+		t.Fatalf("nameByStateID[0] = %q, want %q", nameByStateID[0], "Air")
+	}
+	if nameByStateID[2] != "Stone" {
+		t.Fatalf("nameByStateID[2] = %q, want %q", nameByStateID[2], "Stone")
+	}
+	if nameByStateID[5] != "Short Grass" {
+		t.Fatalf("nameByStateID[5] = %q, want %q", nameByStateID[5], "Short Grass")
+	}
+}
+
 func TestBlockStoreStoreGetAndUnloadChunk(t *testing.T) {
 	bs := &BlockStore{
 		chunks:         make(map[ChunkPos]*Chunk),
@@ -138,6 +172,58 @@ func TestBlockStoreStoreChunkValidation(t *testing.T) {
 	sections[3].BlockStates = make([]int32, BlocksPerSection-1)
 	if err := bs.StoreChunk(0, 0, sections); err == nil {
 		t.Fatalf("expected error when section block-state count is invalid")
+	}
+}
+
+func TestGetBlockNameByStateID(t *testing.T) {
+	bs := &BlockStore{
+		chunks:             make(map[ChunkPos]*Chunk),
+		solidByStateID:     []bool{false, true},
+		blockNameByStateID: []string{"Air", "Stone"},
+	}
+
+	name, ok := bs.GetBlockNameByStateID(1)
+	if !ok {
+		t.Fatalf("GetBlockNameByStateID(1) should return ok=true")
+	}
+	if name != "Stone" {
+		t.Fatalf("GetBlockNameByStateID(1) = %q, want %q", name, "Stone")
+	}
+
+	if _, ok := bs.GetBlockNameByStateID(99); ok {
+		t.Fatalf("GetBlockNameByStateID(99) should return ok=false")
+	}
+}
+
+func TestSetBlockState(t *testing.T) {
+	bs := &BlockStore{
+		chunks:         make(map[ChunkPos]*Chunk),
+		solidByStateID: []bool{false, true},
+	}
+	sections := makeFilledSections(0)
+	if err := bs.StoreChunk(0, 0, sections); err != nil {
+		t.Fatalf("StoreChunk failed: %v", err)
+	}
+
+	if ok := bs.SetBlockState(2, 70, 3, 1); !ok {
+		t.Fatalf("SetBlockState should return true for loaded block")
+	}
+	got, ok := bs.GetBlockState(2, 70, 3)
+	if !ok {
+		t.Fatalf("GetBlockState should return ok=true after SetBlockState")
+	}
+	if got != 1 {
+		t.Fatalf("GetBlockState = %d, want 1", got)
+	}
+}
+
+func TestSetBlockStateUnloadedChunk(t *testing.T) {
+	bs := &BlockStore{
+		chunks:         make(map[ChunkPos]*Chunk),
+		solidByStateID: []bool{false, true},
+	}
+	if ok := bs.SetBlockState(2, 70, 3, 1); ok {
+		t.Fatalf("SetBlockState should return false for unloaded chunk")
 	}
 }
 

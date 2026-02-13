@@ -25,6 +25,7 @@ import (
 const (
 	defaultChunkCaptureDir = "temp/chunk_payloads"
 	defaultChunkCaptureMax = 8
+	footBlockLogInterval   = 2 * time.Second
 )
 
 type Bot struct {
@@ -43,6 +44,17 @@ type Bot struct {
 	chunkCaptureDir   string
 	chunkCaptureMax   int
 	chunkCaptureCount int
+
+	footLogMu      sync.Mutex
+	lastFootLogged footBlockSnapshot
+}
+
+type footBlockSnapshot struct {
+	X       int
+	Y       int
+	Z       int
+	StateID int32
+	Valid   bool
 }
 
 func NewBot(serverAddr, username string) *Bot {
@@ -84,6 +96,7 @@ func (b *Bot) Start(ctx context.Context) error {
 	}
 	//start play state handler
 	go b.handleInjection(ctx)
+	go b.logBlockUnderFeetLoop(ctx)
 
 	return b.handlePlayState(ctx)
 }
@@ -256,6 +269,10 @@ func (b *Bot) handlePlayState(ctx context.Context) error {
 			b.handleLevelChunkWithLight(packet.Payload)
 		case protocol.S2CUnloadChunk:
 			b.handleUnloadChunk(packet.Payload)
+		case protocol.S2CBlockChange:
+			b.handleBlockChange(packet.Payload)
+		case protocol.S2CMultiBlockChange:
+			b.handleMultiBlockChange(packet.Payload)
 		case protocol.S2CUpdateHealth:
 			packetRdr := bytes.NewReader(packet.Payload)
 			updateHealth, err := protocol.ParseUpdateHealth(packetRdr)
@@ -424,7 +441,6 @@ func (b *Bot) handleLevelChunkWithLight(payload []byte) {
 		"has_biome_data", chunk.HasBiomeData,
 	)
 	slog.Info(fmt.Sprintf("Loaded %d chunks", b.blockStore.LoadedChunkCount()))
-	b.logBlockUnderFeetState()
 }
 
 func (b *Bot) handleUnloadChunk(payload []byte) {
@@ -444,6 +460,80 @@ func (b *Bot) handleUnloadChunk(payload []byte) {
 	slog.Info(fmt.Sprintf("Loaded %d chunks", b.blockStore.LoadedChunkCount()))
 }
 
+func (b *Bot) handleBlockChange(payload []byte) {
+	if b.blockStore == nil {
+		slog.Warn("Skipping block change because block store is not initialized")
+		return
+	}
+
+	packetRdr := bytes.NewReader(payload)
+	change, err := protocol.ParseBlockChange(packetRdr)
+	if err != nil {
+		slog.Warn("Failed to parse block change", "error", err)
+		return
+	}
+
+	updated := b.blockStore.SetBlockState(change.X, change.Y, change.Z, change.StateID)
+	if !updated {
+		slog.Debug(
+			"Ignored block change for unloaded chunk",
+			"x", change.X,
+			"y", change.Y,
+			"z", change.Z,
+			"state_id", change.StateID,
+		)
+		return
+	}
+
+	slog.Debug(
+		"Applied block change",
+		"x", change.X,
+		"y", change.Y,
+		"z", change.Z,
+		"state_id", change.StateID,
+	)
+	if b.isBlockUnderFeet(change.X, change.Y, change.Z) {
+		b.logBlockUnderFeetState()
+	}
+}
+
+func (b *Bot) handleMultiBlockChange(payload []byte) {
+	if b.blockStore == nil {
+		slog.Warn("Skipping multi block change because block store is not initialized")
+		return
+	}
+
+	packetRdr := bytes.NewReader(payload)
+	change, err := protocol.ParseMultiBlockChange(packetRdr)
+	if err != nil {
+		slog.Warn("Failed to parse multi block change", "error", err)
+		return
+	}
+
+	applied := 0
+	footBlockTouched := false
+	for _, record := range change.Records {
+		if b.blockStore.SetBlockState(record.X, record.Y, record.Z, record.StateID) {
+			applied++
+			if b.isBlockUnderFeet(record.X, record.Y, record.Z) {
+				footBlockTouched = true
+			}
+		}
+	}
+
+	slog.Debug(
+		"Applied multi block change",
+		"chunk_x", change.ChunkX,
+		"chunk_y", change.ChunkY,
+		"chunk_z", change.ChunkZ,
+		"record_count", len(change.Records),
+		"applied_count", applied,
+	)
+	if footBlockTouched {
+		b.logBlockUnderFeetState()
+	}
+}
+
 func (b *Bot) logBlockUnderFeetState() {
 	if b.blockStore == nil || b.worldState == nil {
 		return
@@ -458,13 +548,61 @@ func (b *Bot) logBlockUnderFeetState() {
 	if !ok {
 		return
 	}
+	blockName, ok := b.blockStore.GetBlockNameByStateID(stateID)
+	if !ok {
+		blockName = "Unknown"
+	}
 
-	slog.Info("Block under feet state",
+	current := footBlockSnapshot{
+		X:       blockX,
+		Y:       blockY,
+		Z:       blockZ,
+		StateID: stateID,
+		Valid:   true,
+	}
+
+	b.footLogMu.Lock()
+	if b.lastFootLogged.Valid &&
+		b.lastFootLogged.X == current.X &&
+		b.lastFootLogged.Y == current.Y &&
+		b.lastFootLogged.Z == current.Z &&
+		b.lastFootLogged.StateID == current.StateID {
+		b.footLogMu.Unlock()
+		return
+	}
+	b.lastFootLogged = current
+	b.footLogMu.Unlock()
+
+	slog.Info("Block under feet",
 		"x", blockX,
 		"y", blockY,
 		"z", blockZ,
 		"state_id", stateID,
+		"block_name", blockName,
 	)
+}
+
+func (b *Bot) isBlockUnderFeet(x, y, z int) bool {
+	if b.worldState == nil {
+		return false
+	}
+	pos := b.worldState.GetState().Position
+	return int(math.Floor(pos.X)) == x &&
+		int(math.Floor(pos.Y))-1 == y &&
+		int(math.Floor(pos.Z)) == z
+}
+
+func (b *Bot) logBlockUnderFeetLoop(ctx context.Context) {
+	ticker := time.NewTicker(footBlockLogInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			b.logBlockUnderFeetState()
+		}
+	}
 }
 func (b *Bot) handleInjection(ctx context.Context) error {
 	for {

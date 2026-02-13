@@ -147,11 +147,13 @@ func TestPacketIDsConsistency(t *testing.T) {
 
 	t.Run("Play ToClient", func(t *testing.T) {
 		m := getMappings(t, protocol.Play.ToClient.Types.Packet)
+		checkID(t, m, "block_change", S2CBlockChange)
 		checkID(t, m, "player_chat", S2CPlayerChatMessage)
 		checkID(t, m, "system_chat", S2CSystemChatMessage)
 		checkID(t, m, "keep_alive", S2CPlayKeepAlive)
 		checkID(t, m, "unload_chunk", S2CUnloadChunk)
 		checkID(t, m, "map_chunk", S2CLevelChunkWithLight)
+		checkID(t, m, "multi_block_change", S2CMultiBlockChange)
 		checkID(t, m, "position", S2CPlayerPosition)
 		checkID(t, m, "entity_metadata", S2CEntityMetadata)
 	})

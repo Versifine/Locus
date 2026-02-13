@@ -31,12 +31,15 @@ type Chunk struct {
 }
 
 type BlockStore struct {
-	mu             sync.RWMutex
-	chunks         map[ChunkPos]*Chunk
-	solidByStateID []bool
+	mu                 sync.RWMutex
+	chunks             map[ChunkPos]*Chunk
+	solidByStateID     []bool
+	blockNameByStateID []string
 }
 
 type blockDefinition struct {
+	Name        string `json:"name"`
+	DisplayName string `json:"displayName"`
 	MinStateID  int32  `json:"minStateId"`
 	MaxStateID  int32  `json:"maxStateId"`
 	BoundingBox string `json:"boundingBox"`
@@ -47,38 +50,44 @@ func NewBlockStore() (*BlockStore, error) {
 }
 
 func NewBlockStoreFromBlocksJSON(blocksJSONPath string) (*BlockStore, error) {
-	solidByStateID, err := LoadStateSolidityFromBlocksJSON(blocksJSONPath)
+	solidByStateID, blockNameByStateID, err := LoadStateMetadataFromBlocksJSON(blocksJSONPath)
 	if err != nil {
 		return nil, err
 	}
 	return &BlockStore{
-		chunks:         make(map[ChunkPos]*Chunk),
-		solidByStateID: solidByStateID,
+		chunks:             make(map[ChunkPos]*Chunk),
+		solidByStateID:     solidByStateID,
+		blockNameByStateID: blockNameByStateID,
 	}, nil
 }
 
 func LoadStateSolidityFromBlocksJSON(blocksJSONPath string) ([]bool, error) {
+	solidByStateID, _, err := LoadStateMetadataFromBlocksJSON(blocksJSONPath)
+	return solidByStateID, err
+}
+
+func LoadStateMetadataFromBlocksJSON(blocksJSONPath string) ([]bool, []string, error) {
 	if blocksJSONPath == "" {
-		return nil, fmt.Errorf("blocks.json path is empty")
+		return nil, nil, fmt.Errorf("blocks.json path is empty")
 	}
 
 	data, err := os.ReadFile(blocksJSONPath)
 	if err != nil {
-		return nil, fmt.Errorf("read blocks.json: %w", err)
+		return nil, nil, fmt.Errorf("read blocks.json: %w", err)
 	}
 
 	var blocks []blockDefinition
 	if err := json.Unmarshal(data, &blocks); err != nil {
-		return nil, fmt.Errorf("parse blocks.json: %w", err)
+		return nil, nil, fmt.Errorf("parse blocks.json: %w", err)
 	}
 	if len(blocks) == 0 {
-		return nil, fmt.Errorf("blocks.json has no block definitions")
+		return nil, nil, fmt.Errorf("blocks.json has no block definitions")
 	}
 
 	maxStateID := int32(-1)
 	for _, block := range blocks {
 		if block.MinStateID < 0 || block.MaxStateID < block.MinStateID {
-			return nil, fmt.Errorf(
+			return nil, nil, fmt.Errorf(
 				"invalid state id range in blocks.json: min=%d max=%d",
 				block.MinStateID,
 				block.MaxStateID,
@@ -90,13 +99,21 @@ func LoadStateSolidityFromBlocksJSON(blocksJSONPath string) ([]bool, error) {
 	}
 
 	solidByStateID := make([]bool, int(maxStateID)+1)
+	blockNameByStateID := make([]string, int(maxStateID)+1)
 	for _, block := range blocks {
 		isSolid := block.BoundingBox == "block"
+		blockName := block.DisplayName
+		if blockName == "" {
+			blockName = block.Name
+		}
 		for id := int(block.MinStateID); id <= int(block.MaxStateID); id++ {
 			solidByStateID[id] = isSolid
+			if blockNameByStateID[id] == "" {
+				blockNameByStateID[id] = blockName
+			}
 		}
 	}
-	return solidByStateID, nil
+	return solidByStateID, blockNameByStateID, nil
 }
 
 func (bs *BlockStore) StoreChunk(chunkX, chunkZ int32, sections []ChunkSection) error {
@@ -136,6 +153,37 @@ func (bs *BlockStore) UnloadChunk(chunkX, chunkZ int32) {
 	bs.mu.Lock()
 	defer bs.mu.Unlock()
 	delete(bs.chunks, ChunkPos{X: chunkX, Z: chunkZ})
+}
+
+func (bs *BlockStore) SetBlockState(x, y, z int, stateID int32) bool {
+	if y < ChunkMinY || y > ChunkMaxY {
+		return false
+	}
+
+	chunkX := floorDiv16(x)
+	chunkZ := floorDiv16(z)
+	localX := floorMod16(x)
+	localZ := floorMod16(z)
+	sectionIndex := (y - ChunkMinY) / ChunkSectionHeight
+	localY := (y - ChunkMinY) % ChunkSectionHeight
+	blockIndex := localY*16*16 + localZ*16 + localX
+
+	bs.mu.Lock()
+	defer bs.mu.Unlock()
+
+	chunk, ok := bs.chunks[ChunkPos{X: int32(chunkX), Z: int32(chunkZ)}]
+	if !ok {
+		return false
+	}
+	if sectionIndex < 0 || sectionIndex >= len(chunk.Sections) {
+		return false
+	}
+	if blockIndex < 0 || blockIndex >= len(chunk.Sections[sectionIndex].BlockStates) {
+		return false
+	}
+
+	chunk.Sections[sectionIndex].BlockStates[blockIndex] = stateID
+	return true
 }
 
 func (bs *BlockStore) IsLoaded(chunkX, chunkZ int32) bool {
@@ -192,6 +240,24 @@ func (bs *BlockStore) IsSolid(x, y, z int) bool {
 		return false
 	}
 	return bs.solidByStateID[stateID]
+}
+
+func (bs *BlockStore) GetBlockNameByStateID(stateID int32) (string, bool) {
+	if stateID < 0 {
+		return "", false
+	}
+
+	bs.mu.RLock()
+	defer bs.mu.RUnlock()
+
+	if int(stateID) >= len(bs.blockNameByStateID) {
+		return "", false
+	}
+	name := bs.blockNameByStateID[stateID]
+	if name == "" {
+		return "", false
+	}
+	return name, true
 }
 
 func defaultBlocksJSONPath() string {

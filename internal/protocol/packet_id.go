@@ -29,6 +29,7 @@ const (
 
 	// Play (S→C)
 	S2CSpawnEntity         = 0x01
+	S2CBlockChange         = 0x08
 	S2CSyncEntityPosition  = 0x23
 	S2CUnloadChunk         = 0x25
 	S2CPlayKeepAlive       = 0x2b
@@ -40,6 +41,7 @@ const (
 	S2CPlayerInfo          = 0x44
 	S2CPlayerPosition      = 0x46
 	S2CEntityDestroy       = 0x4b
+	S2CMultiBlockChange    = 0x52
 	S2CEntityMetadata      = 0x61
 	S2CExperience          = 0x65
 	S2CUpdateHealth        = 0x66

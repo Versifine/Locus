@@ -311,3 +311,87 @@ func TestCaptureFailedChunkPayloadLimitAndFiles(t *testing.T) {
 		t.Fatalf("after third capture (over limit) file count = %d, want 4", len(files))
 	}
 }
+
+func TestHandleBlockChangeUpdatesLoadedChunk(t *testing.T) {
+	blockStore, err := world.NewBlockStore()
+	if err != nil {
+		t.Fatalf("NewBlockStore failed: %v", err)
+	}
+	bot := &Bot{
+		worldState: &world.WorldState{},
+		blockStore: blockStore,
+	}
+
+	payload := buildChunkPacketPayload(t, 0, 0, map[int]int32{
+		7: 1234,
+	})
+	bot.handleLevelChunkWithLight(payload)
+
+	before, ok := bot.GetBlockState(1, 63, 2)
+	if !ok || before != 1234 {
+		t.Fatalf("before block state = (%d,%v), want (1234,true)", before, ok)
+	}
+
+	blockChange := new(bytes.Buffer)
+	_ = protocol.WriteInt64(blockChange, packBlockPosition(1, 63, 2))
+	_ = protocol.WriteVarint(blockChange, 1)
+	bot.handleBlockChange(blockChange.Bytes())
+
+	after, ok := bot.GetBlockState(1, 63, 2)
+	if !ok {
+		t.Fatalf("GetBlockState should return ok=true after block change")
+	}
+	if after != 1 {
+		t.Fatalf("after block state = %d, want 1", after)
+	}
+}
+
+func TestHandleMultiBlockChangeUpdatesLoadedChunk(t *testing.T) {
+	blockStore, err := world.NewBlockStore()
+	if err != nil {
+		t.Fatalf("NewBlockStore failed: %v", err)
+	}
+	bot := &Bot{
+		worldState: &world.WorldState{},
+		blockStore: blockStore,
+	}
+
+	payload := buildChunkPacketPayload(t, 0, 0, map[int]int32{
+		7: 1234,
+	})
+	bot.handleLevelChunkWithLight(payload)
+
+	multi := new(bytes.Buffer)
+	_ = protocol.WriteInt64(multi, packChunkSectionPosition(0, 3, 0))
+	_ = protocol.WriteVarint(multi, 1)
+	// y=63 -> sectionY=3, localY=15
+	_ = protocol.WriteVarint(multi, packMultiBlockRecord(1, 1, 15, 2))
+	bot.handleMultiBlockChange(multi.Bytes())
+
+	after, ok := bot.GetBlockState(1, 63, 2)
+	if !ok {
+		t.Fatalf("GetBlockState should return ok=true after multi block change")
+	}
+	if after != 1 {
+		t.Fatalf("after block state = %d, want 1", after)
+	}
+}
+
+func packBlockPosition(x, y, z int32) int64 {
+	ux := uint64(int64(x) & 0x3FFFFFF)
+	uy := uint64(int64(y) & 0xFFF)
+	uz := uint64(int64(z) & 0x3FFFFFF)
+	return int64((ux << 38) | (uz << 12) | uy)
+}
+
+func packChunkSectionPosition(chunkX, chunkY, chunkZ int32) int64 {
+	ux := uint64(int64(chunkX) & 0x3FFFFF)
+	uy := uint64(int64(chunkY) & 0xFFFFF)
+	uz := uint64(int64(chunkZ) & 0x3FFFFF)
+	return int64((ux << 42) | (uz << 20) | uy)
+}
+
+func packMultiBlockRecord(stateID, localX, localY, localZ int32) int32 {
+	local := ((localX & 0x0F) << 8) | ((localZ & 0x0F) << 4) | (localY & 0x0F)
+	return (stateID << 12) | local
+}
