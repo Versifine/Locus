@@ -150,6 +150,8 @@ func TestPacketIDsConsistency(t *testing.T) {
 		checkID(t, m, "player_chat", S2CPlayerChatMessage)
 		checkID(t, m, "system_chat", S2CSystemChatMessage)
 		checkID(t, m, "keep_alive", S2CPlayKeepAlive)
+		checkID(t, m, "unload_chunk", S2CUnloadChunk)
+		checkID(t, m, "map_chunk", S2CLevelChunkWithLight)
 		checkID(t, m, "position", S2CPlayerPosition)
 		checkID(t, m, "entity_metadata", S2CEntityMetadata)
 	})
