@@ -227,6 +227,32 @@ func TestSetBlockStateUnloadedChunk(t *testing.T) {
 	}
 }
 
+func TestClearRemovesAllChunks(t *testing.T) {
+	bs := &BlockStore{
+		chunks:         make(map[ChunkPos]*Chunk),
+		solidByStateID: []bool{false, true},
+	}
+
+	sections := makeFilledSections(0)
+	if err := bs.StoreChunk(0, 0, sections); err != nil {
+		t.Fatalf("StoreChunk(0,0) failed: %v", err)
+	}
+	if err := bs.StoreChunk(1, -1, sections); err != nil {
+		t.Fatalf("StoreChunk(1,-1) failed: %v", err)
+	}
+	if bs.LoadedChunkCount() != 2 {
+		t.Fatalf("LoadedChunkCount = %d, want 2", bs.LoadedChunkCount())
+	}
+
+	bs.Clear()
+	if bs.LoadedChunkCount() != 0 {
+		t.Fatalf("LoadedChunkCount after Clear = %d, want 0", bs.LoadedChunkCount())
+	}
+	if bs.IsLoaded(0, 0) || bs.IsLoaded(1, -1) {
+		t.Fatalf("chunks should be unloaded after Clear")
+	}
+}
+
 func makeFilledSections(fill int32) []ChunkSection {
 	sections := make([]ChunkSection, ChunkSectionCount)
 	for i := range sections {

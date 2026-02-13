@@ -377,6 +377,113 @@ func TestHandleMultiBlockChangeUpdatesLoadedChunk(t *testing.T) {
 	}
 }
 
+func TestHandlePlayLoginAndRespawnUpdatesDimensionAndClearsChunks(t *testing.T) {
+	blockStore, err := world.NewBlockStore()
+	if err != nil {
+		t.Fatalf("NewBlockStore failed: %v", err)
+	}
+
+	bot := &Bot{
+		worldState: &world.WorldState{},
+		blockStore: blockStore,
+	}
+
+	chunkPayload := buildChunkPacketPayload(t, 0, 0, map[int]int32{7: 1234})
+	bot.handleLevelChunkWithLight(chunkPayload)
+	if bot.blockStore.LoadedChunkCount() != 1 {
+		t.Fatalf("LoadedChunkCount before respawn = %d, want 1", bot.blockStore.LoadedChunkCount())
+	}
+	if _, ok := bot.GetBlockState(1, 63, 2); !ok {
+		t.Fatalf("expected existing block before respawn")
+	}
+
+	loginPayload := buildPlayLoginPayloadForTest(world.DimensionOverworld, 10)
+	bot.handlePlayLogin(loginPayload)
+	viewPayload := buildUpdateViewPositionPayloadForTest(-2, 3)
+	bot.handleUpdateViewPosition(viewPayload)
+
+	snap := bot.GetState()
+	if snap.DimensionName != world.DimensionOverworld {
+		t.Fatalf("DimensionName after login = %q, want %q", snap.DimensionName, world.DimensionOverworld)
+	}
+	if snap.SimulationDistance != 10 {
+		t.Fatalf("SimulationDistance after login = %d, want 10", snap.SimulationDistance)
+	}
+	if snap.ViewCenterChunkX != -2 || snap.ViewCenterChunkZ != 3 {
+		t.Fatalf(
+			"ViewCenter after update = (%d,%d), want (-2,3)",
+			snap.ViewCenterChunkX,
+			snap.ViewCenterChunkZ,
+		)
+	}
+
+	respawnPayload := buildRespawnPayloadForTest(world.DimensionNether)
+	bot.handleRespawn(respawnPayload)
+
+	snap = bot.GetState()
+	if snap.DimensionName != world.DimensionNether {
+		t.Fatalf("DimensionName after respawn = %q, want %q", snap.DimensionName, world.DimensionNether)
+	}
+	if snap.SimulationDistance != 10 {
+		t.Fatalf("SimulationDistance after respawn = %d, want 10", snap.SimulationDistance)
+	}
+	if bot.blockStore.LoadedChunkCount() != 0 {
+		t.Fatalf("LoadedChunkCount after respawn = %d, want 0", bot.blockStore.LoadedChunkCount())
+	}
+	if _, ok := bot.GetBlockState(1, 63, 2); ok {
+		t.Fatalf("old chunk block should not be queryable after respawn clear")
+	}
+}
+
+func TestHandleChunkBatchFinishedSendsAck(t *testing.T) {
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+
+	bot := &Bot{
+		conn:      client,
+		connState: protocol.NewConnState(),
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		packet, err := protocol.ReadPacket(server, -1)
+		if err != nil {
+			errCh <- err
+			return
+		}
+		if packet.ID != protocol.C2SChunkBatchReceived {
+			errCh <- errors.New("unexpected packet id")
+			return
+		}
+
+		r := bytes.NewReader(packet.Payload)
+		chunksPerTick, err := protocol.ReadFloat(r)
+		if err != nil {
+			errCh <- err
+			return
+		}
+		if chunksPerTick != 20.0 {
+			errCh <- errors.New("unexpected chunksPerTick value")
+			return
+		}
+		errCh <- nil
+	}()
+
+	payload := new(bytes.Buffer)
+	_ = protocol.WriteVarint(payload, 128)
+	bot.handleChunkBatchFinished(payload.Bytes())
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("chunk batch ack validation failed: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for chunk batch ack packet")
+	}
+}
+
 func packBlockPosition(x, y, z int32) int64 {
 	ux := uint64(int64(x) & 0x3FFFFFF)
 	uy := uint64(int64(y) & 0xFFF)
@@ -394,4 +501,61 @@ func packChunkSectionPosition(chunkX, chunkY, chunkZ int32) int64 {
 func packMultiBlockRecord(stateID, localX, localY, localZ int32) int32 {
 	local := ((localX & 0x0F) << 8) | ((localZ & 0x0F) << 4) | (localY & 0x0F)
 	return (stateID << 12) | local
+}
+
+func buildPlayLoginPayloadForTest(dimensionName string, simulationDistance int32) []byte {
+	buf := new(bytes.Buffer)
+	_ = protocol.WriteInt32(buf, 1) // entityId
+	_ = protocol.WriteBool(buf, false)
+	_ = protocol.WriteVarint(buf, 1)
+	_ = protocol.WriteString(buf, dimensionName)
+	_ = protocol.WriteVarint(buf, 20) // maxPlayers
+	_ = protocol.WriteVarint(buf, 10) // viewDistance
+	_ = protocol.WriteVarint(buf, simulationDistance)
+	_ = protocol.WriteBool(buf, false) // reducedDebugInfo
+	_ = protocol.WriteBool(buf, true)  // enableRespawnScreen
+	_ = protocol.WriteBool(buf, false) // doLimitedCrafting
+	writeSpawnInfoForBotTest(buf, dimensionName)
+	_ = protocol.WriteBool(buf, false) // enforcesSecureChat
+	return buf.Bytes()
+}
+
+func buildRespawnPayloadForTest(dimensionName string) []byte {
+	buf := new(bytes.Buffer)
+	writeSpawnInfoForBotTest(buf, dimensionName)
+	_ = protocol.WriteByte(buf, 0) // copyMetadata
+	return buf.Bytes()
+}
+
+func buildUpdateViewPositionPayloadForTest(chunkX, chunkZ int32) []byte {
+	buf := new(bytes.Buffer)
+	_ = protocol.WriteVarint(buf, chunkX)
+	_ = protocol.WriteVarint(buf, chunkZ)
+	return buf.Bytes()
+}
+
+func writeSpawnInfoForBotTest(buf *bytes.Buffer, dimensionName string) {
+	_ = protocol.WriteVarint(buf, dimensionIDForTest(dimensionName))
+	_ = protocol.WriteString(buf, dimensionName)
+	_ = protocol.WriteInt64(buf, 12345) // hashedSeed
+	_ = protocol.WriteByte(buf, 0)      // gamemode
+	_ = protocol.WriteByte(buf, 255)    // previousGamemode
+	_ = protocol.WriteBool(buf, false)  // isDebug
+	_ = protocol.WriteBool(buf, false)  // isFlat
+	_ = protocol.WriteBool(buf, false)  // death absent
+	_ = protocol.WriteVarint(buf, 0)    // portalCooldown
+	_ = protocol.WriteVarint(buf, 63)   // seaLevel
+}
+
+func dimensionIDForTest(dimensionName string) int32 {
+	switch dimensionName {
+	case world.DimensionOverworld:
+		return 0
+	case world.DimensionNether:
+		return 1
+	case world.DimensionEnd:
+		return 2
+	default:
+		return 0
+	}
 }

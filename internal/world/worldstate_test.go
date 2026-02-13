@@ -44,3 +44,25 @@ func TestUpdateEntityItemName_AppliesAfterSpawn(t *testing.T) {
 		t.Fatalf("snapshot.Entities[0].ItemName = %q, want %q", snapshot.Entities[0].ItemName, "Diamond")
 	}
 }
+
+func TestUpdateDimensionContextAndViewCenter(t *testing.T) {
+	ws := &WorldState{}
+
+	ws.UpdateDimensionContext(DimensionOverworld, 10)
+	ws.UpdateViewCenter(-3, 8)
+
+	snapshot := ws.GetState()
+	if snapshot.DimensionName != DimensionOverworld {
+		t.Fatalf("snapshot.DimensionName = %q, want %q", snapshot.DimensionName, DimensionOverworld)
+	}
+	if snapshot.SimulationDistance != 10 {
+		t.Fatalf("snapshot.SimulationDistance = %d, want 10", snapshot.SimulationDistance)
+	}
+	if snapshot.ViewCenterChunkX != -3 || snapshot.ViewCenterChunkZ != 8 {
+		t.Fatalf(
+			"snapshot.ViewCenterChunk = (%d,%d), want (-3,8)",
+			snapshot.ViewCenterChunkX,
+			snapshot.ViewCenterChunkZ,
+		)
+	}
+}

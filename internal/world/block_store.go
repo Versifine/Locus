@@ -199,6 +199,12 @@ func (bs *BlockStore) LoadedChunkCount() int {
 	return len(bs.chunks)
 }
 
+func (bs *BlockStore) Clear() {
+	bs.mu.Lock()
+	defer bs.mu.Unlock()
+	bs.chunks = make(map[ChunkPos]*Chunk)
+}
+
 func (bs *BlockStore) GetBlockState(x, y, z int) (int32, bool) {
 	if y < ChunkMinY || y > ChunkMaxY {
 		return 0, false

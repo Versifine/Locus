@@ -26,6 +26,7 @@ const (
 	defaultChunkCaptureDir = "temp/chunk_payloads"
 	defaultChunkCaptureMax = 8
 	footBlockLogInterval   = 2 * time.Second
+	chunksPerTickAck       = float32(20.0)
 )
 
 type Bot struct {
@@ -47,6 +48,11 @@ type Bot struct {
 
 	footLogMu      sync.Mutex
 	lastFootLogged footBlockSnapshot
+
+	chunkStatsMu        sync.Mutex
+	lastChunkStatsLogAt time.Time
+	chunkLoadEvents     int
+	chunkUnloadEvents   int
 }
 
 type footBlockSnapshot struct {
@@ -124,7 +130,6 @@ func (b *Bot) login() error {
 		if err != nil {
 			return err
 		}
-		slog.Debug("Received packet in Login state", "packet_id", packet.ID)
 		switch packet.ID {
 		case protocol.S2CSetCompression:
 			// 设置压缩
@@ -170,7 +175,6 @@ func (b *Bot) handleConfiguration() error {
 		if err != nil {
 			return err
 		}
-		slog.Debug("Received packet in Configuration state", "packet_id", packet.ID)
 		switch packet.ID {
 		case protocol.S2CConfigKeepAlive:
 			// 响应保持连接包
@@ -217,7 +221,6 @@ func (b *Bot) handlePlayState(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		slog.Debug("Received packet in Play state", "packet_id", packet.ID)
 		switch packet.ID {
 		case protocol.S2CPlayKeepAlive:
 			// 响应保持连接包
@@ -246,6 +249,16 @@ func (b *Bot) handlePlayState(ctx context.Context) error {
 
 		case protocol.S2CSystemChatMessage:
 			// 处理系统消息
+		case protocol.S2CLogin:
+			b.handlePlayLogin(packet.Payload)
+		case protocol.S2CRespawn:
+			b.handleRespawn(packet.Payload)
+		case protocol.S2CUpdateViewPosition:
+			b.handleUpdateViewPosition(packet.Payload)
+		case protocol.S2CChunkBatchStart:
+			b.handleChunkBatchStart(packet.Payload)
+		case protocol.S2CChunkBatchFinished:
+			b.handleChunkBatchFinished(packet.Payload)
 		case protocol.S2CPlayerPosition:
 			// 处理玩家位置更新
 			packetRdr := bytes.NewReader(packet.Payload)
@@ -353,7 +366,6 @@ func (b *Bot) handlePlayState(ctx context.Context) error {
 			if found {
 				itemName := world.ItemName(itemID)
 				b.worldState.UpdateEntityItemName(entityID, itemName)
-				slog.Debug("Updated item entity metadata", "entity_id", entityID, "item_id", itemID, "item_name", itemName)
 			}
 		case protocol.S2CEntityDestroy:
 			packetRdr := bytes.NewReader(packet.Payload)
@@ -396,7 +408,7 @@ func (b *Bot) handlePlayState(ctx context.Context) error {
 			}
 			b.worldState.UpdateEntityPosition(syncPos.EntityID, syncPos.X, syncPos.Y, syncPos.Z)
 		default:
-			slog.Debug("Unhandled packet in Play state", "packet_id", packet.ID)
+			// Intentionally silent to avoid debug-mode log flood.
 		}
 
 	}
@@ -433,14 +445,118 @@ func (b *Bot) handleLevelChunkWithLight(payload []byte) {
 		return
 	}
 
-	slog.Debug(
-		"Parsed chunk section format",
-		"chunk_x", chunk.ChunkX,
-		"chunk_z", chunk.ChunkZ,
-		"parsed_section_count", chunk.SectionCount,
-		"has_biome_data", chunk.HasBiomeData,
-	)
-	slog.Info(fmt.Sprintf("Loaded %d chunks", b.blockStore.LoadedChunkCount()))
+	b.noteChunkLoad()
+}
+
+func (b *Bot) handlePlayLogin(payload []byte) {
+	if b.worldState == nil {
+		return
+	}
+
+	packetRdr := bytes.NewReader(payload)
+	login, err := protocol.ParsePlayLogin(packetRdr)
+	if err != nil {
+		slog.Warn("Failed to parse play login", "error", err)
+		return
+	}
+
+	b.worldState.UpdateDimensionContext(login.WorldState.Name, login.SimulationDistance)
+	if bounds, ok := world.VanillaDimensionBounds(login.WorldState.Name); ok {
+		slog.Info(
+			"Updated dimension context from play login",
+			"dimension", login.WorldState.Name,
+			"simulation_distance", login.SimulationDistance,
+			"min_y", bounds.MinY,
+			"height", bounds.Height,
+		)
+	} else {
+		slog.Warn(
+			"Updated dimension context from play login with unknown dimension",
+			"dimension", login.WorldState.Name,
+			"simulation_distance", login.SimulationDistance,
+		)
+	}
+}
+
+func (b *Bot) handleRespawn(payload []byte) {
+	if b.worldState == nil {
+		return
+	}
+
+	packetRdr := bytes.NewReader(payload)
+	respawn, err := protocol.ParseRespawn(packetRdr)
+	if err != nil {
+		slog.Warn("Failed to parse respawn", "error", err)
+		return
+	}
+
+	current := b.worldState.GetState()
+	b.worldState.UpdateDimensionContext(respawn.WorldState.Name, current.SimulationDistance)
+
+	if b.blockStore != nil {
+		b.blockStore.Clear()
+	}
+	b.footLogMu.Lock()
+	b.lastFootLogged = footBlockSnapshot{}
+	b.footLogMu.Unlock()
+
+	if bounds, ok := world.VanillaDimensionBounds(respawn.WorldState.Name); ok {
+		slog.Info(
+			"Handled respawn and cleared cached chunks",
+			"dimension", respawn.WorldState.Name,
+			"simulation_distance", current.SimulationDistance,
+			"min_y", bounds.MinY,
+			"height", bounds.Height,
+		)
+	} else {
+		slog.Warn(
+			"Handled respawn for unknown dimension and cleared cached chunks",
+			"dimension", respawn.WorldState.Name,
+			"simulation_distance", current.SimulationDistance,
+		)
+	}
+}
+
+func (b *Bot) handleUpdateViewPosition(payload []byte) {
+	if b.worldState == nil {
+		return
+	}
+
+	packetRdr := bytes.NewReader(payload)
+	viewPos, err := protocol.ParseUpdateViewPosition(packetRdr)
+	if err != nil {
+		slog.Warn("Failed to parse update view position", "error", err)
+		return
+	}
+	b.worldState.UpdateViewCenter(viewPos.ChunkX, viewPos.ChunkZ)
+}
+
+func (b *Bot) handleChunkBatchStart(payload []byte) {
+	packetRdr := bytes.NewReader(payload)
+	if _, err := protocol.ParseChunkBatchStart(packetRdr); err != nil {
+		slog.Warn("Failed to parse chunk batch start", "error", err)
+		return
+	}
+}
+
+func (b *Bot) handleChunkBatchFinished(payload []byte) {
+	packetRdr := bytes.NewReader(payload)
+	finished, err := protocol.ParseChunkBatchFinished(packetRdr)
+	if err != nil {
+		slog.Warn("Failed to parse chunk batch finished", "error", err)
+		return
+	}
+
+	if b.conn == nil || b.connState == nil {
+		slog.Warn("Skipping chunk batch received ack because connection is not initialized")
+		return
+	}
+
+	ack := protocol.CreateChunkBatchReceivedPacket(chunksPerTickAck)
+	if err := b.writePacket(b.conn, ack, b.connState.GetThreshold()); err != nil {
+		slog.Warn("Failed to send chunk batch received ack", "error", err, "batch_size", finished.BatchSize)
+		return
+	}
 }
 
 func (b *Bot) handleUnloadChunk(payload []byte) {
@@ -457,7 +573,7 @@ func (b *Bot) handleUnloadChunk(payload []byte) {
 	}
 
 	b.blockStore.UnloadChunk(unload.ChunkX, unload.ChunkZ)
-	slog.Info(fmt.Sprintf("Loaded %d chunks", b.blockStore.LoadedChunkCount()))
+	b.noteChunkUnload()
 }
 
 func (b *Bot) handleBlockChange(payload []byte) {
@@ -473,25 +589,10 @@ func (b *Bot) handleBlockChange(payload []byte) {
 		return
 	}
 
-	updated := b.blockStore.SetBlockState(change.X, change.Y, change.Z, change.StateID)
-	if !updated {
-		slog.Debug(
-			"Ignored block change for unloaded chunk",
-			"x", change.X,
-			"y", change.Y,
-			"z", change.Z,
-			"state_id", change.StateID,
-		)
+	if !b.blockStore.SetBlockState(change.X, change.Y, change.Z, change.StateID) {
 		return
 	}
 
-	slog.Debug(
-		"Applied block change",
-		"x", change.X,
-		"y", change.Y,
-		"z", change.Z,
-		"state_id", change.StateID,
-	)
 	if b.isBlockUnderFeet(change.X, change.Y, change.Z) {
 		b.logBlockUnderFeetState()
 	}
@@ -510,25 +611,14 @@ func (b *Bot) handleMultiBlockChange(payload []byte) {
 		return
 	}
 
-	applied := 0
 	footBlockTouched := false
 	for _, record := range change.Records {
 		if b.blockStore.SetBlockState(record.X, record.Y, record.Z, record.StateID) {
-			applied++
 			if b.isBlockUnderFeet(record.X, record.Y, record.Z) {
 				footBlockTouched = true
 			}
 		}
 	}
-
-	slog.Debug(
-		"Applied multi block change",
-		"chunk_x", change.ChunkX,
-		"chunk_y", change.ChunkY,
-		"chunk_z", change.ChunkZ,
-		"record_count", len(change.Records),
-		"applied_count", applied,
-	)
 	if footBlockTouched {
 		b.logBlockUnderFeetState()
 	}
@@ -770,4 +860,51 @@ func extractChunkCoords(payload []byte) (bool, int32, int32) {
 	chunkX := int32(binary.BigEndian.Uint32(payload[0:4]))
 	chunkZ := int32(binary.BigEndian.Uint32(payload[4:8]))
 	return true, chunkX, chunkZ
+}
+
+func (b *Bot) noteChunkLoad() {
+	b.chunkStatsMu.Lock()
+	defer b.chunkStatsMu.Unlock()
+	b.chunkLoadEvents++
+	b.maybeLogChunkStatsLocked()
+}
+
+func (b *Bot) noteChunkUnload() {
+	b.chunkStatsMu.Lock()
+	defer b.chunkStatsMu.Unlock()
+	b.chunkUnloadEvents++
+	b.maybeLogChunkStatsLocked()
+}
+
+func (b *Bot) maybeLogChunkStatsLocked() {
+	now := time.Now()
+	if b.lastChunkStatsLogAt.IsZero() {
+		b.lastChunkStatsLogAt = now
+	}
+
+	const chunkStatsLogInterval = 2 * time.Second
+	const chunkStatsLogBurstThreshold = 32
+
+	totalSinceLast := b.chunkLoadEvents + b.chunkUnloadEvents
+	shouldLog := now.Sub(b.lastChunkStatsLogAt) >= chunkStatsLogInterval ||
+		totalSinceLast >= chunkStatsLogBurstThreshold
+	if !shouldLog {
+		return
+	}
+
+	loadedChunks := 0
+	if b.blockStore != nil {
+		loadedChunks = b.blockStore.LoadedChunkCount()
+	}
+
+	slog.Info(
+		"Chunk sync stats",
+		"loaded_chunks", loadedChunks,
+		"load_events", b.chunkLoadEvents,
+		"unload_events", b.chunkUnloadEvents,
+	)
+
+	b.chunkLoadEvents = 0
+	b.chunkUnloadEvents = 0
+	b.lastChunkStatsLogAt = now
 }

@@ -12,6 +12,10 @@ type WorldState struct {
 	health           float32
 	food             int32
 	gameTime         GameTime
+	dimensionName    string
+	simulationDist   int32
+	viewCenterChunkX int32
+	viewCenterChunkZ int32
 	playerList       []Player
 	entities         map[int32]*Entity
 	pendingItemNames map[int32]string
@@ -29,12 +33,16 @@ type Entity struct {
 }
 
 type Snapshot struct {
-	Position   Position
-	Health     float32
-	Food       int32
-	GameTime   GameTime
-	PlayerList []Player
-	Entities   []Entity
+	Position           Position
+	Health             float32
+	Food               int32
+	GameTime           GameTime
+	DimensionName      string
+	SimulationDistance int32
+	ViewCenterChunkX   int32
+	ViewCenterChunkZ   int32
+	PlayerList         []Player
+	Entities           []Entity
 }
 
 func (s Snapshot) String() string {
@@ -96,12 +104,16 @@ func (ws *WorldState) GetState() Snapshot {
 		entities = append(entities, *e)
 	}
 	return Snapshot{
-		Position:   ws.position,
-		Health:     ws.health,
-		Food:       ws.food,
-		GameTime:   ws.gameTime,
-		PlayerList: append([]Player(nil), ws.playerList...),
-		Entities:   entities,
+		Position:           ws.position,
+		Health:             ws.health,
+		Food:               ws.food,
+		GameTime:           ws.gameTime,
+		DimensionName:      ws.dimensionName,
+		SimulationDistance: ws.simulationDist,
+		ViewCenterChunkX:   ws.viewCenterChunkX,
+		ViewCenterChunkZ:   ws.viewCenterChunkZ,
+		PlayerList:         append([]Player(nil), ws.playerList...),
+		Entities:           entities,
 	}
 }
 
@@ -134,6 +146,20 @@ func (ws *WorldState) UpdateGameTime(gameTime GameTime) {
 	ws.mu.Lock()
 	defer ws.mu.Unlock()
 	ws.gameTime = gameTime
+}
+
+func (ws *WorldState) UpdateDimensionContext(dimensionName string, simulationDistance int32) {
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+	ws.dimensionName = dimensionName
+	ws.simulationDist = simulationDistance
+}
+
+func (ws *WorldState) UpdateViewCenter(chunkX, chunkZ int32) {
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+	ws.viewCenterChunkX = chunkX
+	ws.viewCenterChunkZ = chunkZ
 }
 
 type Player struct {
