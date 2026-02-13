@@ -56,6 +56,18 @@ type Bot struct {
 
 	unhandledMu           sync.Mutex
 	unhandledPacketCounts map[int32]int
+
+	chunkBatchMu           sync.Mutex
+	chunkBatchSeq          int64
+	chunkBatchActive       bool
+	chunkBatchCurrentID    int64
+	chunkBatchStartedAt    time.Time
+	chunkBatchLoadEvents   int
+	chunkBatchUnloadEvents int
+	lastChunkBatchSummary  chunkBatchSummary
+
+	playerLoadedMu   sync.Mutex
+	sentPlayerLoaded bool
 }
 
 type footBlockSnapshot struct {
@@ -64,6 +76,16 @@ type footBlockSnapshot struct {
 	Z       int
 	StateID int32
 	Valid   bool
+}
+
+type chunkBatchSummary struct {
+	BatchID      int64
+	Started      bool
+	BatchSize    int32
+	LoadEvents   int
+	UnloadEvents int
+	Duration     time.Duration
+	FinishedAt   time.Time
 }
 
 func NewBot(serverAddr, username string) *Bot {
@@ -281,6 +303,23 @@ func (b *Bot) handlePlayState(ctx context.Context) error {
 			if err := b.writePacket(b.conn, teleCfmPacket, b.connState.GetThreshold()); err != nil {
 				return err
 			}
+			// Vanilla clients send a movement packet after teleport confirm.
+			// Some servers rely on this to continue chunk streaming.
+			posAck := protocol.CreatePlayerPositionAndRotationPacket(
+				playerPos.X,
+				playerPos.Y,
+				playerPos.Z,
+				playerPos.Yaw,
+				playerPos.Pitch,
+				false,
+				false,
+			)
+			if err := b.writePacket(b.conn, posAck, b.connState.GetThreshold()); err != nil {
+				return err
+			}
+			if err := b.maybeSendPlayerLoaded(); err != nil {
+				return err
+			}
 		case protocol.S2CLevelChunkWithLight:
 			b.handleLevelChunkWithLight(packet.Payload)
 		case protocol.S2CUnloadChunk:
@@ -470,6 +509,7 @@ func (b *Bot) handleLevelChunkWithLight(payload []byte) {
 		"section_count", chunk.SectionCount,
 		"block_entity_count", len(chunk.BlockEntities),
 	)
+	b.noteChunkBatchChunkLoad()
 	b.noteChunkLoad()
 }
 
@@ -517,6 +557,7 @@ func (b *Bot) handleRespawn(payload []byte) {
 
 	current := b.worldState.GetState()
 	b.worldState.UpdateDimensionContext(respawn.WorldState.Name, current.SimulationDistance)
+	b.resetPlayerLoaded()
 
 	if b.blockStore != nil {
 		b.blockStore.Clear()
@@ -562,7 +603,7 @@ func (b *Bot) handleChunkBatchStart(payload []byte) {
 		slog.Warn("Failed to parse chunk batch start", "error", err)
 		return
 	}
-	slog.Debug("Received chunk batch start")
+	b.beginChunkBatch()
 }
 
 func (b *Bot) handleChunkBatchFinished(payload []byte) {
@@ -572,6 +613,7 @@ func (b *Bot) handleChunkBatchFinished(payload []byte) {
 		slog.Warn("Failed to parse chunk batch finished", "error", err)
 		return
 	}
+	summary := b.finishChunkBatch(finished.BatchSize)
 
 	if b.conn == nil || b.connState == nil {
 		slog.Warn("Skipping chunk batch received ack because connection is not initialized")
@@ -583,7 +625,15 @@ func (b *Bot) handleChunkBatchFinished(payload []byte) {
 		slog.Warn("Failed to send chunk batch received ack", "error", err, "batch_size", finished.BatchSize)
 		return
 	}
-	slog.Debug("Sent chunk batch received ack", "batch_size", finished.BatchSize, "chunks_per_tick", chunksPerTickAck)
+	slog.Debug(
+		"Sent chunk batch received ack",
+		"batch_size", finished.BatchSize,
+		"chunks_per_tick", chunksPerTickAck,
+		"batch_id", summary.BatchID,
+		"had_start", summary.Started,
+		"load_events", summary.LoadEvents,
+		"unload_events", summary.UnloadEvents,
+	)
 }
 
 func (b *Bot) handleUnloadChunk(payload []byte) {
@@ -601,6 +651,7 @@ func (b *Bot) handleUnloadChunk(payload []byte) {
 
 	b.blockStore.UnloadChunk(unload.ChunkX, unload.ChunkZ)
 	slog.Debug("Unloaded chunk", "chunk_x", unload.ChunkX, "chunk_z", unload.ChunkZ)
+	b.noteChunkBatchChunkUnload()
 	b.noteChunkUnload()
 }
 
@@ -1015,4 +1066,115 @@ func (b *Bot) logUnhandledPlayPacket(packetID int32) {
 	if count == 1 || count%100 == 0 {
 		slog.Debug("Unhandled packet in Play state", "packet_id", fmt.Sprintf("0x%02x", packetID), "count", count)
 	}
+}
+
+func (b *Bot) maybeSendPlayerLoaded() error {
+	b.playerLoadedMu.Lock()
+	alreadySent := b.sentPlayerLoaded
+	if !alreadySent {
+		b.sentPlayerLoaded = true
+	}
+	b.playerLoadedMu.Unlock()
+
+	if alreadySent {
+		return nil
+	}
+
+	packet := protocol.CreatePlayerLoadedPacket()
+	if err := b.writePacket(b.conn, packet, b.connState.GetThreshold()); err != nil {
+		b.playerLoadedMu.Lock()
+		b.sentPlayerLoaded = false
+		b.playerLoadedMu.Unlock()
+		return err
+	}
+
+	slog.Debug("Sent player loaded packet")
+	return nil
+}
+
+func (b *Bot) resetPlayerLoaded() {
+	b.playerLoadedMu.Lock()
+	defer b.playerLoadedMu.Unlock()
+	b.sentPlayerLoaded = false
+}
+
+func (b *Bot) beginChunkBatch() {
+	b.chunkBatchMu.Lock()
+	defer b.chunkBatchMu.Unlock()
+
+	if b.chunkBatchActive {
+		slog.Warn(
+			"Chunk batch start received before previous batch finished",
+			"previous_batch_id", b.chunkBatchCurrentID,
+			"load_events", b.chunkBatchLoadEvents,
+			"unload_events", b.chunkBatchUnloadEvents,
+		)
+	}
+
+	b.chunkBatchSeq++
+	b.chunkBatchCurrentID = b.chunkBatchSeq
+	b.chunkBatchActive = true
+	b.chunkBatchStartedAt = time.Now()
+	b.chunkBatchLoadEvents = 0
+	b.chunkBatchUnloadEvents = 0
+
+	slog.Debug("Received chunk batch start", "batch_id", b.chunkBatchCurrentID)
+}
+
+func (b *Bot) noteChunkBatchChunkLoad() {
+	b.chunkBatchMu.Lock()
+	defer b.chunkBatchMu.Unlock()
+	if !b.chunkBatchActive {
+		return
+	}
+	b.chunkBatchLoadEvents++
+}
+
+func (b *Bot) noteChunkBatchChunkUnload() {
+	b.chunkBatchMu.Lock()
+	defer b.chunkBatchMu.Unlock()
+	if !b.chunkBatchActive {
+		return
+	}
+	b.chunkBatchUnloadEvents++
+}
+
+func (b *Bot) finishChunkBatch(batchSize int32) chunkBatchSummary {
+	now := time.Now()
+
+	b.chunkBatchMu.Lock()
+	summary := chunkBatchSummary{
+		BatchSize:  batchSize,
+		FinishedAt: now,
+	}
+	if b.chunkBatchActive {
+		summary.BatchID = b.chunkBatchCurrentID
+		summary.Started = true
+		summary.LoadEvents = b.chunkBatchLoadEvents
+		summary.UnloadEvents = b.chunkBatchUnloadEvents
+		summary.Duration = now.Sub(b.chunkBatchStartedAt)
+	}
+
+	b.lastChunkBatchSummary = summary
+	b.chunkBatchActive = false
+	b.chunkBatchCurrentID = 0
+	b.chunkBatchStartedAt = time.Time{}
+	b.chunkBatchLoadEvents = 0
+	b.chunkBatchUnloadEvents = 0
+	b.chunkBatchMu.Unlock()
+
+	if !summary.Started {
+		slog.Warn("Chunk batch finished received without active batch start", "batch_size", batchSize)
+		return summary
+	}
+
+	slog.Debug(
+		"Chunk batch finished",
+		"batch_id", summary.BatchID,
+		"batch_size", summary.BatchSize,
+		"load_events", summary.LoadEvents,
+		"unload_events", summary.UnloadEvents,
+		"duration_ms", summary.Duration.Milliseconds(),
+	)
+	return summary
 }

@@ -66,5 +66,8 @@ const (
 	C2SClientCommand         = 0x0b
 	C2SPlayClientInformation = 0x0d
 	C2SPlayKeepAlive         = 0x1b
+	C2SPlayerPosition        = 0x1d
+	C2SPlayerPositionLook    = 0x1e
 	C2SBlockDig              = 0x28
+	C2SPlayerLoaded          = 0x2b
 )

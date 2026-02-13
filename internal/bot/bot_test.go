@@ -654,6 +654,203 @@ func TestHandleChunkBatchFinishedSendsAck(t *testing.T) {
 	}
 }
 
+func TestHandleChunkBatchStartChunkFinishedFlow(t *testing.T) {
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+
+	blockStore, err := world.NewBlockStore()
+	if err != nil {
+		t.Fatalf("NewBlockStore failed: %v", err)
+	}
+
+	bot := &Bot{
+		conn:       client,
+		connState:  protocol.NewConnState(),
+		worldState: &world.WorldState{},
+		blockStore: blockStore,
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		packet, err := protocol.ReadPacket(server, -1)
+		if err != nil {
+			errCh <- err
+			return
+		}
+		if packet.ID != protocol.C2SChunkBatchReceived {
+			errCh <- errors.New("unexpected packet id")
+			return
+		}
+
+		r := bytes.NewReader(packet.Payload)
+		chunksPerTick, err := protocol.ReadFloat(r)
+		if err != nil {
+			errCh <- err
+			return
+		}
+		if chunksPerTick != 20.0 {
+			errCh <- errors.New("unexpected chunksPerTick value")
+			return
+		}
+		errCh <- nil
+	}()
+
+	bot.handleChunkBatchStart(nil)
+	chunkPayload := buildChunkPacketPayload(t, 0, 0, map[int]int32{7: 1234})
+	bot.handleLevelChunkWithLight(chunkPayload)
+
+	unloadPayload := new(bytes.Buffer)
+	_ = protocol.WriteInt32(unloadPayload, 0) // chunkZ first
+	_ = protocol.WriteInt32(unloadPayload, 0) // chunkX
+	bot.handleUnloadChunk(unloadPayload.Bytes())
+
+	finishedPayload := new(bytes.Buffer)
+	_ = protocol.WriteVarint(finishedPayload, 2)
+	bot.handleChunkBatchFinished(finishedPayload.Bytes())
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("chunk batch ack validation failed: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for chunk batch ack packet")
+	}
+
+	if bot.chunkBatchActive {
+		t.Fatalf("chunk batch should be inactive after finish")
+	}
+
+	summary := bot.lastChunkBatchSummary
+	if !summary.Started {
+		t.Fatalf("summary.Started = false, want true")
+	}
+	if summary.BatchSize != 2 {
+		t.Fatalf("summary.BatchSize = %d, want 2", summary.BatchSize)
+	}
+	if summary.LoadEvents != 1 {
+		t.Fatalf("summary.LoadEvents = %d, want 1", summary.LoadEvents)
+	}
+	if summary.UnloadEvents != 1 {
+		t.Fatalf("summary.UnloadEvents = %d, want 1", summary.UnloadEvents)
+	}
+	if summary.BatchID <= 0 {
+		t.Fatalf("summary.BatchID = %d, want > 0", summary.BatchID)
+	}
+}
+
+func TestHandleChunkBatchFinishedWithoutStartStillAcks(t *testing.T) {
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+
+	bot := &Bot{
+		conn:      client,
+		connState: protocol.NewConnState(),
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		packet, err := protocol.ReadPacket(server, -1)
+		if err != nil {
+			errCh <- err
+			return
+		}
+		if packet.ID != protocol.C2SChunkBatchReceived {
+			errCh <- errors.New("unexpected packet id")
+			return
+		}
+		r := bytes.NewReader(packet.Payload)
+		chunksPerTick, err := protocol.ReadFloat(r)
+		if err != nil {
+			errCh <- err
+			return
+		}
+		if chunksPerTick != 20.0 {
+			errCh <- errors.New("unexpected chunksPerTick value")
+			return
+		}
+		errCh <- nil
+	}()
+
+	payload := new(bytes.Buffer)
+	_ = protocol.WriteVarint(payload, 5)
+	bot.handleChunkBatchFinished(payload.Bytes())
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("chunk batch ack validation failed: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for chunk batch ack packet")
+	}
+
+	summary := bot.lastChunkBatchSummary
+	if summary.Started {
+		t.Fatalf("summary.Started = true, want false")
+	}
+	if summary.BatchSize != 5 {
+		t.Fatalf("summary.BatchSize = %d, want 5", summary.BatchSize)
+	}
+	if summary.LoadEvents != 0 || summary.UnloadEvents != 0 {
+		t.Fatalf("unexpected summary events: load=%d unload=%d", summary.LoadEvents, summary.UnloadEvents)
+	}
+}
+
+func TestMaybeSendPlayerLoadedOnlyOnce(t *testing.T) {
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+
+	bot := &Bot{
+		conn:      client,
+		connState: protocol.NewConnState(),
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		packet, err := protocol.ReadPacket(server, -1)
+		if err != nil {
+			errCh <- err
+			return
+		}
+		if packet.ID != protocol.C2SPlayerLoaded {
+			errCh <- errors.New("unexpected packet id")
+			return
+		}
+		if len(packet.Payload) != 0 {
+			errCh <- errors.New("unexpected payload length")
+			return
+		}
+
+		_ = server.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+		_, err = protocol.ReadPacket(server, -1)
+		if err == nil {
+			errCh <- errors.New("expected no second player_loaded packet")
+			return
+		}
+		errCh <- nil
+	}()
+
+	if err := bot.maybeSendPlayerLoaded(); err != nil {
+		t.Fatalf("first maybeSendPlayerLoaded failed: %v", err)
+	}
+	if err := bot.maybeSendPlayerLoaded(); err != nil {
+		t.Fatalf("second maybeSendPlayerLoaded failed: %v", err)
+	}
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("player_loaded validation failed: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for player_loaded validation")
+	}
+}
+
 func packBlockPosition(x, y, z int32) int64 {
 	ux := uint64(int64(x) & 0x3FFFFFF)
 	uy := uint64(int64(y) & 0xFFF)
