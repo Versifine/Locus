@@ -4,38 +4,94 @@
 
 Locus 是一个 Headless Minecraft Bot，作为独立玩家登录 MC 服务器，通过 LLM 驱动行为。
 
-## 数据流
+## 分层架构
 
 ```
-                    ┌─────────────┐
-                    │  MC 服务器   │
-                    └──────┬──────┘
-                           │ TCP (MC Protocol 774)
-                    ┌──────┴──────┐
-                    │  Locus Bot  │
-                    ├─────────────┤
-                    │  Protocol   │  包读写 / 编解码 / 状态机
-                    │  Bot        │  登录 / Keep-Alive / 收发包
-                    │  EventBus   │  事件发布与订阅
-                    │  Agent      │  订阅事件 → 调用 LLM → 执行动作
-                    │  LLM        │  DeepSeek API
-                    └─────────────┘
+┌─────────────────────────────────────────────────────┐
+│  Agent（决策层）                                      │
+│  LLM 选择技能："走到 Steve 身边并打招呼"              │
+│  频率：每几秒一次                                     │
+├─────────────────────────────────────────────────────┤
+│  Skill（技能层）                                      │
+│  WalkTo / LookAt / Speak / ...                       │
+│  每 tick 输出 InputState（按键信号）                   │
+│  频率：每 50ms (20 tick/s)                            │
+├─────────────────────────────────────────────────────┤
+│  Body（身体层）                                       │
+│  InputState → 物理计算 → 位置/动作                    │
+│  v0.6: 简单偏移    v0.7+: 物理引擎                    │
+│  频率：每 tick                                        │
+├─────────────────────────────────────────────────────┤
+│  Bot（连接层）                                        │
+│  Protocol 编解码 / 登录 / Keep-Alive / 收发包         │
+│  WorldState 更新 / EventBus 事件发布                  │
+├─────────────────────────────────────────────────────┤
+│  MC 服务器                                            │
+│  TCP (Protocol 774 / MC 1.21.11)                     │
+└─────────────────────────────────────────────────────┘
+```
+
+## 核心数据流
+
+### 感知（上行）
+
+```
+MC 服务器 → TCP 包 → Protocol 解码 → Bot 分发
+  → WorldState 更新（位置/血量/实体/玩家）
+  → EventBus 发布事件（聊天/战斗/...）
+  → Agent 获取 Snapshot
+```
+
+### 行动（下行）
+
+```
+Agent 选择技能（LLM 决策）
+  → Skill.Tick(snapshot) 输出 InputState（按键信号）
+    → Body.Tick(input) 转为位置/动作
+      → Bot 发 Protocol 包 → MC 服务器
+```
+
+### InputState（按键信号）
+
+技能层的唯一输出格式，等同于玩家的键鼠输入：
+
+```
+InputState {
+    Forward / Backward / Left / Right   — WASD
+    Jump / Sneak / Sprint               — Space / Shift / Ctrl
+    Attack / Use                        — 左键 / 右键
+    Yaw / Pitch                         — 鼠标朝向
+}
+```
+
+技能不直接发包、不直接改位置。它只设置"我要按什么键"。
+Body 负责把按键信号转成物理位置变化和协议包。
+
+## 记忆架构
+
+```
+工作记忆（Working Memory）  ← WorldState Snapshot，每 tick 刷新
+短期记忆（Short-term Memory）← 事件摘要列表，<memory> 标签压缩
+长期记忆（Long-term Memory） ← 待实现，持久化存储
 ```
 
 ## 目录结构
 
 ```
 locus/
-├── cmd/locus/main.go        # 入口：按 mode 启动 Bot 或 Proxy
+├── cmd/locus/main.go        # 入口：按 mode 启动 Bot
 ├── internal/
-│   ├── bot/                 # Headless Bot（登录、保活、收发包）
-│   ├── agent/               # AI 决策层（事件订阅、LLM 调用）
-│   ├── protocol/            # MC 协议（VarInt、Packet、Chat、NBT...）
+│   ├── bot/                 # 连接层（登录、保活、收发包）
+│   ├── body/                # 身体层（InputState → 位置包）  [v0.6 新增]
+│   ├── skill/               # 技能层（Skill 接口 + Registry）[v0.6 新增]
+│   ├── agent/               # 决策层（Agent Loop + LLM 调用）
+│   ├── world/               # 世界状态（Snapshot、实体、玩家）
+│   ├── protocol/            # MC 协议（VarInt、Packet、NBT...）
 │   ├── event/               # 事件总线（发布/订阅）
 │   ├── llm/                 # LLM API 客户端（DeepSeek）
 │   ├── config/              # YAML 配置加载
 │   ├── logger/              # 结构化日志（slog）
-│   └── proxy/               # TCP 代理（已归档，仅用于协议调试）
+│   └── proxy/               # TCP 代理（已归档）
 ├── configs/config.yaml      # 运行配置
 └── docs/                    # 文档 + 研究笔记
 ```

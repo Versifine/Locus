@@ -3,6 +3,7 @@ package protocol
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -101,7 +102,7 @@ func getMappings(t *testing.T, packetType []any) map[string]int {
 }
 
 func TestPacketIDsConsistency(t *testing.T) {
-	data, err := os.ReadFile("1.21.11protocol.json")
+	data, err := os.ReadFile(filepath.Join("..", "..", "1.21.11", "protocol.json"))
 	if err != nil {
 		t.Fatalf("Failed to read protocol.json: %v", err)
 	}
@@ -146,10 +147,23 @@ func TestPacketIDsConsistency(t *testing.T) {
 
 	t.Run("Play ToClient", func(t *testing.T) {
 		m := getMappings(t, protocol.Play.ToClient.Types.Packet)
+		checkID(t, m, "acknowledge_player_digging", S2CAcknowledgePlayerDigging)
+		checkID(t, m, "tile_entity_data", S2CTileEntityData)
+		checkID(t, m, "block_action", S2CBlockAction)
+		checkID(t, m, "block_change", S2CBlockChange)
+		checkID(t, m, "chunk_batch_finished", S2CChunkBatchFinished)
+		checkID(t, m, "chunk_batch_start", S2CChunkBatchStart)
 		checkID(t, m, "player_chat", S2CPlayerChatMessage)
 		checkID(t, m, "system_chat", S2CSystemChatMessage)
 		checkID(t, m, "keep_alive", S2CPlayKeepAlive)
+		checkID(t, m, "unload_chunk", S2CUnloadChunk)
+		checkID(t, m, "map_chunk", S2CLevelChunkWithLight)
+		checkID(t, m, "login", S2CLogin)
+		checkID(t, m, "multi_block_change", S2CMultiBlockChange)
 		checkID(t, m, "position", S2CPlayerPosition)
+		checkID(t, m, "respawn", S2CRespawn)
+		checkID(t, m, "update_view_position", S2CUpdateViewPosition)
+		checkID(t, m, "entity_metadata", S2CEntityMetadata)
 	})
 
 	t.Run("Play ToServer", func(t *testing.T) {
@@ -157,9 +171,11 @@ func TestPacketIDsConsistency(t *testing.T) {
 		checkID(t, m, "chat_command", C2SChatCommand)
 		checkID(t, m, "chat_command_signed", C2SChatCommandSigned)
 		checkID(t, m, "chat_message", C2SChatMessage)
+		checkID(t, m, "chunk_batch_received", C2SChunkBatchReceived)
 		checkID(t, m, "keep_alive", C2SPlayKeepAlive)
 		checkID(t, m, "teleport_confirm", C2STeleportConfirm)
 		checkID(t, m, "settings", C2SPlayClientInformation)
+		checkID(t, m, "block_dig", C2SBlockDig)
 	})
 }
 

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -142,8 +141,6 @@ func (s *Server) relayPackets(ctx context.Context, src, dst net.Conn, tag string
 			}
 			return err
 		}
-		slog.Debug("Packet received", "dir", tag, "id", fmt.Sprintf("0x%02x", packet.ID))
-
 		var newThreshold int = -2 // -2 means no change detected
 
 		switch connState.Get() {

@@ -182,6 +182,15 @@ func ReadByte(r io.Reader) (byte, error) {
 	}
 	return buf[0], nil
 }
+func ReadInt16(r io.Reader) (int16, error) {
+	var buf [2]byte
+	_, err := io.ReadFull(r, buf[:])
+	if err != nil {
+		return 0, err
+	}
+	return int16(binary.BigEndian.Uint16(buf[:])), nil
+}
+
 func ReadInt32(r io.Reader) (int32, error) {
 	var buf [4]byte
 	_, err := io.ReadFull(r, buf[:])

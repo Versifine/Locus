@@ -4,37 +4,144 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/Versifine/locus/internal/event"
 	"github.com/Versifine/locus/internal/protocol"
 	"github.com/Versifine/locus/internal/world"
 )
 
+const (
+	defaultChunkCaptureDir = "temp/chunk_payloads"
+	defaultChunkCaptureMax = 8
+	footBlockLogInterval   = 2 * time.Second
+	chunksPerTickAck       = float32(20.0)
+)
+
 type Bot struct {
+	connectionState
+	runtimeState
+	chunkCaptureState
+	footLogState
+	chunkStatsState
+	unhandledPacketState
+	chunkBatchState
+	playerLoadedState
+	digSyncState
+}
+
+type connectionState struct {
 	serverAddr string
 	username   string
 	uuid       protocol.UUID
 	conn       net.Conn
 	connState  *protocol.ConnState
-	eventBus   *event.Bus
-	worldState *world.WorldState
-	injectCh   chan string
 	mu         sync.RWMutex
 }
 
+type runtimeState struct {
+	eventBus   *event.Bus
+	worldState *world.WorldState
+	blockStore *world.BlockStore
+	injectCh   chan string
+}
+
+type chunkCaptureState struct {
+	chunkCaptureMu    sync.Mutex
+	chunkCaptureDir   string
+	chunkCaptureMax   int
+	chunkCaptureCount int
+}
+
+type footLogState struct {
+	footLogMu      sync.Mutex
+	lastFootLogged footBlockSnapshot
+}
+
+type chunkStatsState struct {
+	chunkStatsMu        sync.Mutex
+	lastChunkStatsLogAt time.Time
+	chunkLoadEvents     int
+	chunkUnloadEvents   int
+}
+
+type unhandledPacketState struct {
+	unhandledMu           sync.Mutex
+	unhandledPacketCounts map[int32]int
+}
+
+type chunkBatchState struct {
+	chunkBatchMu           sync.Mutex
+	chunkBatchSeq          int64
+	chunkBatchActive       bool
+	chunkBatchCurrentID    int64
+	chunkBatchStartedAt    time.Time
+	chunkBatchLoadEvents   int
+	chunkBatchUnloadEvents int
+	lastChunkBatchSummary  chunkBatchSummary
+}
+
+type playerLoadedState struct {
+	playerLoadedMu   sync.Mutex
+	sentPlayerLoaded bool
+}
+
+type digSyncState struct {
+	digMu              sync.Mutex
+	nextDigSequence    int32
+	pendingDigRequests map[int32]pendingDigRequest
+}
+
+type footBlockSnapshot struct {
+	X       int
+	Y       int
+	Z       int
+	StateID int32
+	Valid   bool
+}
+
+type chunkBatchSummary struct {
+	BatchID      int64
+	Started      bool
+	BatchSize    int32
+	LoadEvents   int
+	UnloadEvents int
+	Duration     time.Duration
+	FinishedAt   time.Time
+}
+
+type pendingDigRequest struct {
+	Status   int32
+	Location protocol.BlockPos
+	Face     int8
+	SentAt   time.Time
+}
+
 func NewBot(serverAddr, username string) *Bot {
+	blockStore, err := world.NewBlockStore()
+	if err != nil {
+		slog.Error("Failed to initialize block store", "error", err)
+	}
 	return &Bot{
-		serverAddr: serverAddr,
-		username:   username,
-		uuid:       protocol.GenerateOfflineUUID(username),
-		eventBus:   event.NewBus(),
-		injectCh:   make(chan string, 100),
-		worldState: &world.WorldState{},
+		connectionState: connectionState{
+			serverAddr: serverAddr,
+			username:   username,
+			uuid:       protocol.GenerateOfflineUUID(username),
+		},
+		runtimeState: runtimeState{
+			eventBus:   event.NewBus(),
+			worldState: &world.WorldState{},
+			blockStore: blockStore,
+			injectCh:   make(chan string, 100),
+		},
+		chunkCaptureState: chunkCaptureState{
+			chunkCaptureDir: defaultChunkCaptureDir,
+			chunkCaptureMax: defaultChunkCaptureMax,
+		},
 	}
 }
 
@@ -58,6 +165,7 @@ func (b *Bot) Start(ctx context.Context) error {
 	}
 	//start play state handler
 	go b.handleInjection(ctx)
+	go b.logBlockUnderFeetLoop(ctx)
 
 	return b.handlePlayState(ctx)
 }
@@ -85,7 +193,6 @@ func (b *Bot) login() error {
 		if err != nil {
 			return err
 		}
-		slog.Debug("Received packet in Login state", "packet_id", packet.ID)
 		switch packet.ID {
 		case protocol.S2CSetCompression:
 			// 设置压缩
@@ -131,7 +238,6 @@ func (b *Bot) handleConfiguration() error {
 		if err != nil {
 			return err
 		}
-		slog.Debug("Received packet in Configuration state", "packet_id", packet.ID)
 		switch packet.ID {
 		case protocol.S2CConfigKeepAlive:
 			// 响应保持连接包
@@ -178,7 +284,6 @@ func (b *Bot) handlePlayState(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		slog.Debug("Received packet in Play state", "packet_id", packet.ID)
 		switch packet.ID {
 		case protocol.S2CPlayKeepAlive:
 			// 响应保持连接包
@@ -207,6 +312,16 @@ func (b *Bot) handlePlayState(ctx context.Context) error {
 
 		case protocol.S2CSystemChatMessage:
 			// 处理系统消息
+		case protocol.S2CLogin:
+			b.handlePlayLogin(packet.Payload)
+		case protocol.S2CRespawn:
+			b.handleRespawn(packet.Payload)
+		case protocol.S2CUpdateViewPosition:
+			b.handleUpdateViewPosition(packet.Payload)
+		case protocol.S2CChunkBatchStart:
+			b.handleChunkBatchStart(packet.Payload)
+		case protocol.S2CChunkBatchFinished:
+			b.handleChunkBatchFinished(packet.Payload)
 		case protocol.S2CPlayerPosition:
 			// 处理玩家位置更新
 			packetRdr := bytes.NewReader(packet.Payload)
@@ -222,17 +337,55 @@ func (b *Bot) handlePlayState(ctx context.Context) error {
 				Yaw:   playerPos.Yaw,
 				Pitch: playerPos.Pitch,
 			})
+			b.logBlockUnderFeetState()
 			if err := b.writePacket(b.conn, teleCfmPacket, b.connState.GetThreshold()); err != nil {
 				return err
 			}
+			// Vanilla clients send a movement packet after teleport confirm.
+			// Some servers rely on this to continue chunk streaming.
+			posAck := protocol.CreatePlayerPositionAndRotationPacket(
+				playerPos.X,
+				playerPos.Y,
+				playerPos.Z,
+				playerPos.Yaw,
+				playerPos.Pitch,
+				false,
+				false,
+			)
+			if err := b.writePacket(b.conn, posAck, b.connState.GetThreshold()); err != nil {
+				return err
+			}
+			if err := b.maybeSendPlayerLoaded(); err != nil {
+				return err
+			}
+		case protocol.S2CLevelChunkWithLight:
+			b.handleLevelChunkWithLight(packet.Payload)
+		case protocol.S2CUnloadChunk:
+			b.handleUnloadChunk(packet.Payload)
+		case protocol.S2CBlockChange:
+			b.handleBlockChange(packet.Payload)
+		case protocol.S2CMultiBlockChange:
+			b.handleMultiBlockChange(packet.Payload)
+		case protocol.S2CTileEntityData:
+			b.handleTileEntityData(packet.Payload)
+		case protocol.S2CBlockAction:
+			b.handleBlockAction(packet.Payload)
+		case protocol.S2CAcknowledgePlayerDigging:
+			b.handleAcknowledgePlayerDigging(packet.Payload)
 		case protocol.S2CUpdateHealth:
-			// 处理健康和饥饿更新
 			packetRdr := bytes.NewReader(packet.Payload)
 			updateHealth, err := protocol.ParseUpdateHealth(packetRdr)
 			if err != nil {
 				return err
 			}
 			b.worldState.UpdateHealth(updateHealth.Health, updateHealth.Food)
+			if updateHealth.Health <= 0 {
+				slog.Info("Bot died, sending respawn")
+				respawnPacket := protocol.CreateClientCommandPacket(0)
+				if err := b.writePacket(b.conn, respawnPacket, b.connState.GetThreshold()); err != nil {
+					return err
+				}
+			}
 		case protocol.S2CUpdateTime:
 			// 处理时间更新
 			packetRdr := bytes.NewReader(packet.Payload)
@@ -274,41 +427,75 @@ func (b *Bot) handlePlayState(ctx context.Context) error {
 			for _, uuid := range playerRemove.Players {
 				b.worldState.RemovePlayer(uuid.String())
 			}
-		default:
-			slog.Debug("Unhandled packet in Play state", "packet_id", packet.ID)
-		}
-
-	}
-}
-func (b *Bot) handleInjection(ctx context.Context) error {
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case msg := <-b.injectCh:
-			slog.Info("Injecting message", "message", msg)
-			chatPacket := protocol.CreateChatMessagePacket(msg)
-			if err := b.writePacket(b.conn, chatPacket, b.connState.GetThreshold()); err != nil {
-				slog.Error("Failed to inject message", "error", err)
+		case protocol.S2CSpawnEntity:
+			packetRdr := bytes.NewReader(packet.Payload)
+			spawn, err := protocol.ParseSpawnEntity(packetRdr)
+			if err != nil {
+				slog.Warn("Failed to parse spawn entity", "error", err)
+				continue
 			}
-
+			b.worldState.AddEntity(world.Entity{
+				EntityID: spawn.EntityID,
+				UUID:     spawn.ObjectUUID.String(),
+				Type:     spawn.Type,
+				X:        spawn.X,
+				Y:        spawn.Y,
+				Z:        spawn.Z,
+			})
+		case protocol.S2CEntityMetadata:
+			packetRdr := bytes.NewReader(packet.Payload)
+			entityID, itemID, found, err := protocol.ParseEntityMetadataItemSlot(packetRdr)
+			if err != nil {
+				slog.Warn("Failed to parse entity metadata", "error", err)
+				continue
+			}
+			if found {
+				itemName := world.ItemName(itemID)
+				b.worldState.UpdateEntityItemName(entityID, itemName)
+			}
+		case protocol.S2CEntityDestroy:
+			packetRdr := bytes.NewReader(packet.Payload)
+			destroy, err := protocol.ParseEntityDestroy(packetRdr)
+			if err != nil {
+				slog.Warn("Failed to parse entity destroy", "error", err)
+				continue
+			}
+			b.worldState.RemoveEntities(destroy.EntityIDs)
+		case protocol.S2CRelEntityMove:
+			packetRdr := bytes.NewReader(packet.Payload)
+			move, err := protocol.ParseRelEntityMove(packetRdr)
+			if err != nil {
+				slog.Warn("Failed to parse rel entity move", "error", err)
+				continue
+			}
+			b.worldState.UpdateEntityPositionRelative(move.EntityID, move.DeltaX(), move.DeltaY(), move.DeltaZ())
+		case protocol.S2CEntityMoveLook:
+			packetRdr := bytes.NewReader(packet.Payload)
+			move, err := protocol.ParseEntityMoveLook(packetRdr)
+			if err != nil {
+				slog.Warn("Failed to parse entity move look", "error", err)
+				continue
+			}
+			b.worldState.UpdateEntityPositionRelative(move.EntityID, move.DeltaX(), move.DeltaY(), move.DeltaZ())
+		case protocol.S2CEntityTeleport:
+			packetRdr := bytes.NewReader(packet.Payload)
+			tp, err := protocol.ParseEntityTeleport(packetRdr)
+			if err != nil {
+				slog.Warn("Failed to parse entity teleport", "error", err)
+				continue
+			}
+			b.worldState.UpdateEntityPosition(tp.EntityID, tp.X, tp.Y, tp.Z)
+		case protocol.S2CSyncEntityPosition:
+			packetRdr := bytes.NewReader(packet.Payload)
+			syncPos, err := protocol.ParseSyncEntityPosition(packetRdr)
+			if err != nil {
+				slog.Warn("Failed to parse sync entity position", "error", err)
+				continue
+			}
+			b.worldState.UpdateEntityPosition(syncPos.EntityID, syncPos.X, syncPos.Y, syncPos.Z)
+		default:
+			b.logUnhandledPlayPacket(packet.ID)
 		}
+
 	}
-}
-
-func (b *Bot) writePacket(w io.Writer, packet *protocol.Packet, threshold int) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return protocol.WritePacket(w, packet, threshold)
-}
-
-func (b *Bot) Bus() *event.Bus {
-	return b.eventBus
-}
-func (b *Bot) SendMsgToServer(msg string) error {
-	b.injectCh <- msg
-	return nil
-}
-func (b *Bot) GetState() world.Snapshot {
-	return b.worldState.GetState()
 }

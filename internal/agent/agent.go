@@ -3,6 +3,7 @@ package agent
 import (
 	"bufio"
 	"log/slog"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -12,7 +13,12 @@ import (
 	"github.com/Versifine/locus/internal/world"
 )
 
-const defaultMaxHistory = 20
+const (
+	defaultMaxHistory = 20
+	memoryTagPattern  = `(?is)<memory>(.*?)</memory>`
+)
+
+var memoryTagRegexp = regexp.MustCompile(memoryTagPattern)
 
 type Agent struct {
 	bus           *event.Bus
@@ -21,13 +27,14 @@ type Agent struct {
 	client        *llm.Client
 	maxHistory    int
 
-	mu      sync.Mutex
-	history map[protocol.UUID][]llm.Message
+	mu     sync.Mutex
+	memory map[protocol.UUID][]string
 }
 
 type MessageSender interface {
 	SendMsgToServer(message string) error
 }
+
 type StateProvider interface {
 	GetState() world.Snapshot
 }
@@ -37,43 +44,132 @@ func NewAgent(bus *event.Bus, sender MessageSender, stateProvider StateProvider,
 	if client != nil && client.Config().MaxHistory > 0 {
 		maxH = client.Config().MaxHistory
 	}
+
 	a := &Agent{
 		bus:           bus,
 		sender:        sender,
 		stateProvider: stateProvider,
 		client:        client,
 		maxHistory:    maxH,
-		history:       make(map[protocol.UUID][]llm.Message),
+		memory:        make(map[protocol.UUID][]string),
 	}
 	bus.Subscribe(event.EventChat, a.ChatEventHandler)
 	return a
 }
-func (a *Agent) appendHistory(uuid protocol.UUID, msg llm.Message) {
+
+func normalizeMemory(summary string) string {
+	summary = strings.TrimSpace(summary)
+	if summary == "" {
+		return ""
+	}
+	return strings.Join(strings.Fields(summary), " ")
+}
+
+func (a *Agent) appendMemory(uuid protocol.UUID, summary string) {
+	summary = normalizeMemory(summary)
+	if summary == "" {
+		return
+	}
+
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.history[uuid] = append(a.history[uuid], msg)
-	if len(a.history[uuid]) > a.maxHistory {
-		a.history[uuid] = a.history[uuid][len(a.history[uuid])-a.maxHistory:]
+	a.memory[uuid] = append(a.memory[uuid], summary)
+	if len(a.memory[uuid]) > a.maxHistory {
+		a.memory[uuid] = a.memory[uuid][len(a.memory[uuid])-a.maxHistory:]
 	}
 }
 
-func (a *Agent) getHistory(uuid protocol.UUID) []llm.Message {
+func (a *Agent) getMemory(uuid protocol.UUID) []string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	hist := make([]llm.Message, len(a.history[uuid]))
-	copy(hist, a.history[uuid])
-	return hist
+	memory := make([]string, len(a.memory[uuid]))
+	copy(memory, a.memory[uuid])
+	return memory
+}
+
+func buildRecentMemoryContent(memory []string) string {
+	var builder strings.Builder
+	for _, item := range memory {
+		item = normalizeMemory(item)
+		if item == "" {
+			continue
+		}
+		builder.WriteString("- ")
+		builder.WriteString(item)
+		builder.WriteString("\n")
+	}
+	return strings.TrimSpace(builder.String())
+}
+
+func buildMessages(systemPrompt string, memory []string, stateStr string, userMessage string) []llm.Message {
+	messages := make([]llm.Message, 0, len(memory)+6)
+	messages = append(messages, llm.Message{Role: "system", Content: systemPrompt})
+
+	if len(memory) > 0 {
+		messages = append(messages, llm.Message{
+			Role:    "system",
+			Content: "[以下是历史对话记录，其中涉及的位置、实体、状态等信息均已过时，仅供了解对话上下文]",
+		})
+		if recent := buildRecentMemoryContent(memory); recent != "" {
+			messages = append(messages, llm.Message{
+				Role:    "system",
+				Content: "[近期记忆]\n" + recent,
+			})
+		}
+		messages = append(messages, llm.Message{
+			Role:    "system",
+			Content: "[历史记录结束。以下是当前真实状态，以此为准]",
+		})
+	}
+
+	messages = append(messages, llm.Message{
+		Role: "system",
+		Content: "[当前状态（唯一可信数据源）]\n" + stateStr + "\n\n[回答约束]\n" +
+			"- 只回答玩家这一次的问题，不要主动扩展未被询问的内容。\n" +
+			"- 如果玩家是问候或闲聊，先正常简短回应，不要主动播报实体列表。\n" +
+			"- 涉及数量或距离时，优先给结论，再补充必要细节。",
+	})
+	messages = append(messages, llm.Message{Role: "user", Content: userMessage})
+	return messages
+}
+
+func extractMemory(response string) (chatReply, memory string) {
+	response = strings.TrimSpace(response)
+	if response == "" {
+		return "", ""
+	}
+
+	matches := memoryTagRegexp.FindAllStringSubmatch(response, -1)
+	if len(matches) > 0 {
+		memory = normalizeMemory(matches[len(matches)-1][1])
+	}
+
+	chatReply = memoryTagRegexp.ReplaceAllString(response, "")
+
+	lower := strings.ToLower(chatReply)
+	if idx := strings.LastIndex(lower, "<memory>"); idx >= 0 {
+		chatReply = chatReply[:idx]
+	}
+	chatReply = strings.ReplaceAll(chatReply, "</memory>", "")
+	chatReply = strings.TrimSpace(chatReply)
+
+	return chatReply, memory
 }
 
 func (a *Agent) handleSourcePlayer(evt *event.ChatEvent) {
-	// 1. 追加 user 消息到历史
-	a.appendHistory(evt.UUID, llm.Message{Role: "user", Content: evt.Message})
+	if a.client == nil {
+		slog.Error("LLM client is nil")
+		return
+	}
+	if a.stateProvider == nil {
+		slog.Error("StateProvider is nil")
+		return
+	}
 
-	// 2. 组装 system + 历史 发给 LLM
-	hist := a.getHistory(evt.UUID)
-	messages := make([]llm.Message, 0, len(hist)+1)
-	messages = append(messages, llm.Message{Role: "system", Content: a.client.Config().SystemPrompt + "\n当前状态:\n" + a.stateProvider.GetState().String()})
-	messages = append(messages, hist...)
+	// 1) build LLM messages using per-player recent memory summary
+	memory := a.getMemory(evt.UUID)
+	stateStr := a.stateProvider.GetState().String()
+	messages := buildMessages(a.client.Config().SystemPrompt, memory, stateStr, evt.Message)
 
 	response, err := a.client.Chat(evt.Ctx, messages)
 	if err != nil {
@@ -81,11 +177,12 @@ func (a *Agent) handleSourcePlayer(evt *event.ChatEvent) {
 		return
 	}
 
-	// 3. 追加 assistant 回复到历史（存完整回复）
-	a.appendHistory(evt.UUID, llm.Message{Role: "assistant", Content: response})
+	// 2) strip memory tags before sending to game, keep extracted summary for future turns
+	chatReply, memorySummary := extractMemory(response)
+	a.appendMemory(evt.UUID, memorySummary)
 
-	// 4. 拆段发送到游戏
-	scanner := bufio.NewScanner(strings.NewReader(response))
+	// 3) split multiline response and send line by line
+	scanner := bufio.NewScanner(strings.NewReader(chatReply))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
@@ -98,24 +195,22 @@ func (a *Agent) handleSourcePlayer(evt *event.ChatEvent) {
 		}
 	}
 }
+
 func SplitByRunes(s string, limit int) []string {
 	if limit <= 0 {
 		return nil
 	}
 
 	var chunks []string
-	runes := []rune(s) // 转为 rune 切片以正确处理中文/Emoji
-
+	runes := []rune(s)
 	for len(runes) > 0 {
 		if len(runes) > limit {
-			// 还没切完，切一刀，剩下的继续循环
 			chunks = append(chunks, string(runes[:limit]))
 			runes = runes[limit:]
-		} else {
-			// 剩下的不足 limit，直接全部放入
-			chunks = append(chunks, string(runes))
-			runes = nil // 结束循环
+			continue
 		}
+		chunks = append(chunks, string(runes))
+		runes = nil
 	}
 	return chunks
 }
@@ -130,20 +225,17 @@ func (a *Agent) ChatEventHandler(raw any) {
 		slog.Error("MessageSender is nil")
 		return
 	}
-	// 在这里处理聊天事件，例如记录日志或修改消息内容
+
 	slog.Info("Chat event", "username", chatEvent.Username, "uuid", chatEvent.UUID.String(), "message", chatEvent.Message, "source", chatEvent.Source.String())
 	switch chatEvent.Source {
 	case event.SourcePlayer:
-		// 处理玩家消息
-		// 例如，可以将消息发送到 LLM 客户端进行处理
 		go a.handleSourcePlayer(chatEvent)
-
 	case event.SourceSystem:
-	// 处理系统消息
+		// reserved for system messages
 	case event.SourcePlayerCmd:
-	// 处理玩家命令消息
+		// reserved for player command messages
 	case event.SourcePlayerSend:
-	// 处理玩家发送消息
+		// reserved for player send messages
 	default:
 		slog.Warn("Unknown chat event source", "source", chatEvent.Source.String())
 	}
