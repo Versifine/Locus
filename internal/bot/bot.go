@@ -53,6 +53,9 @@ type Bot struct {
 	lastChunkStatsLogAt time.Time
 	chunkLoadEvents     int
 	chunkUnloadEvents   int
+
+	unhandledMu           sync.Mutex
+	unhandledPacketCounts map[int32]int
 }
 
 type footBlockSnapshot struct {
@@ -286,6 +289,10 @@ func (b *Bot) handlePlayState(ctx context.Context) error {
 			b.handleBlockChange(packet.Payload)
 		case protocol.S2CMultiBlockChange:
 			b.handleMultiBlockChange(packet.Payload)
+		case protocol.S2CTileEntityData:
+			b.handleTileEntityData(packet.Payload)
+		case protocol.S2CBlockAction:
+			b.handleBlockAction(packet.Payload)
 		case protocol.S2CUpdateHealth:
 			packetRdr := bytes.NewReader(packet.Payload)
 			updateHealth, err := protocol.ParseUpdateHealth(packetRdr)
@@ -408,7 +415,7 @@ func (b *Bot) handlePlayState(ctx context.Context) error {
 			}
 			b.worldState.UpdateEntityPosition(syncPos.EntityID, syncPos.X, syncPos.Y, syncPos.Z)
 		default:
-			// Intentionally silent to avoid debug-mode log flood.
+			b.logUnhandledPlayPacket(packet.ID)
 		}
 
 	}
@@ -440,11 +447,29 @@ func (b *Bot) handleLevelChunkWithLight(payload []byte) {
 		)
 		return
 	}
-	if err := b.blockStore.StoreChunk(chunk.ChunkX, chunk.ChunkZ, sections); err != nil {
+	blockEntities := make([]world.BlockEntity, 0, len(chunk.BlockEntities))
+	for _, be := range chunk.BlockEntities {
+		blockEntities = append(blockEntities, world.BlockEntity{
+			X:       be.X,
+			Y:       be.Y,
+			Z:       be.Z,
+			TypeID:  be.TypeID,
+			NBTData: be.NBTData,
+		})
+	}
+
+	if err := b.blockStore.StoreChunkWithBlockEntities(chunk.ChunkX, chunk.ChunkZ, sections, blockEntities); err != nil {
 		slog.Warn("Failed to store chunk", "chunk_x", chunk.ChunkX, "chunk_z", chunk.ChunkZ, "error", err)
 		return
 	}
 
+	slog.Debug(
+		"Stored chunk",
+		"chunk_x", chunk.ChunkX,
+		"chunk_z", chunk.ChunkZ,
+		"section_count", chunk.SectionCount,
+		"block_entity_count", len(chunk.BlockEntities),
+	)
 	b.noteChunkLoad()
 }
 
@@ -537,6 +562,7 @@ func (b *Bot) handleChunkBatchStart(payload []byte) {
 		slog.Warn("Failed to parse chunk batch start", "error", err)
 		return
 	}
+	slog.Debug("Received chunk batch start")
 }
 
 func (b *Bot) handleChunkBatchFinished(payload []byte) {
@@ -557,6 +583,7 @@ func (b *Bot) handleChunkBatchFinished(payload []byte) {
 		slog.Warn("Failed to send chunk batch received ack", "error", err, "batch_size", finished.BatchSize)
 		return
 	}
+	slog.Debug("Sent chunk batch received ack", "batch_size", finished.BatchSize, "chunks_per_tick", chunksPerTickAck)
 }
 
 func (b *Bot) handleUnloadChunk(payload []byte) {
@@ -573,6 +600,7 @@ func (b *Bot) handleUnloadChunk(payload []byte) {
 	}
 
 	b.blockStore.UnloadChunk(unload.ChunkX, unload.ChunkZ)
+	slog.Debug("Unloaded chunk", "chunk_x", unload.ChunkX, "chunk_z", unload.ChunkZ)
 	b.noteChunkUnload()
 }
 
@@ -622,6 +650,70 @@ func (b *Bot) handleMultiBlockChange(payload []byte) {
 	if footBlockTouched {
 		b.logBlockUnderFeetState()
 	}
+}
+
+func (b *Bot) handleTileEntityData(payload []byte) {
+	if b.blockStore == nil {
+		slog.Warn("Skipping tile entity update because block store is not initialized")
+		return
+	}
+
+	packetRdr := bytes.NewReader(payload)
+	update, err := protocol.ParseTileEntityData(packetRdr)
+	if err != nil {
+		slog.Warn("Failed to parse tile entity data", "error", err)
+		return
+	}
+
+	updated := b.blockStore.UpdateTileEntityData(
+		int(update.X),
+		int(update.Y),
+		int(update.Z),
+		update.Action,
+		update.NBTData,
+	)
+	slog.Debug(
+		"Applied tile entity data",
+		"x", update.X,
+		"y", update.Y,
+		"z", update.Z,
+		"action", update.Action,
+		"has_nbt", update.NBTData != nil,
+		"updated", updated,
+	)
+}
+
+func (b *Bot) handleBlockAction(payload []byte) {
+	if b.blockStore == nil {
+		slog.Warn("Skipping block action because block store is not initialized")
+		return
+	}
+
+	packetRdr := bytes.NewReader(payload)
+	action, err := protocol.ParseBlockAction(packetRdr)
+	if err != nil {
+		slog.Warn("Failed to parse block action", "error", err)
+		return
+	}
+
+	recorded := b.blockStore.RecordBlockAction(
+		int(action.X),
+		int(action.Y),
+		int(action.Z),
+		action.Byte1,
+		action.Byte2,
+		action.BlockID,
+	)
+	slog.Debug(
+		"Recorded block action",
+		"x", action.X,
+		"y", action.Y,
+		"z", action.Z,
+		"byte1", action.Byte1,
+		"byte2", action.Byte2,
+		"block_id", action.BlockID,
+		"recorded", recorded,
+	)
 }
 
 func (b *Bot) logBlockUnderFeetState() {
@@ -907,4 +999,20 @@ func (b *Bot) maybeLogChunkStatsLocked() {
 	b.chunkLoadEvents = 0
 	b.chunkUnloadEvents = 0
 	b.lastChunkStatsLogAt = now
+}
+
+func (b *Bot) logUnhandledPlayPacket(packetID int32) {
+	b.unhandledMu.Lock()
+	defer b.unhandledMu.Unlock()
+
+	if b.unhandledPacketCounts == nil {
+		b.unhandledPacketCounts = make(map[int32]int)
+	}
+	b.unhandledPacketCounts[packetID]++
+	count := b.unhandledPacketCounts[packetID]
+
+	// Log first sighting of packet ID and then every 100 repeats.
+	if count == 1 || count%100 == 0 {
+		slog.Debug("Unhandled packet in Play state", "packet_id", fmt.Sprintf("0x%02x", packetID), "count", count)
+	}
 }

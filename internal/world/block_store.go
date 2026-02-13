@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"time"
 )
 
 const (
@@ -26,8 +27,36 @@ type ChunkSection struct {
 	BlockStates []int32
 }
 
+type BlockPos struct {
+	X int
+	Y int
+	Z int
+}
+
+type BlockEntity struct {
+	X         int
+	Y         int
+	Z         int
+	TypeID    int32
+	Action    int32
+	HasAction bool
+	NBTData   any
+}
+
+type BlockActionRecord struct {
+	X         int
+	Y         int
+	Z         int
+	Byte1     byte
+	Byte2     byte
+	BlockID   int32
+	UpdatedAt time.Time
+}
+
 type Chunk struct {
-	Sections []ChunkSection
+	Sections      []ChunkSection
+	BlockEntities map[BlockPos]BlockEntity
+	BlockActions  map[BlockPos]BlockActionRecord
 }
 
 type BlockStore struct {
@@ -117,12 +146,18 @@ func LoadStateMetadataFromBlocksJSON(blocksJSONPath string) ([]bool, []string, e
 }
 
 func (bs *BlockStore) StoreChunk(chunkX, chunkZ int32, sections []ChunkSection) error {
+	return bs.StoreChunkWithBlockEntities(chunkX, chunkZ, sections, nil)
+}
+
+func (bs *BlockStore) StoreChunkWithBlockEntities(chunkX, chunkZ int32, sections []ChunkSection, blockEntities []BlockEntity) error {
 	if len(sections) != ChunkSectionCount {
 		return fmt.Errorf("invalid section count: got %d, want %d", len(sections), ChunkSectionCount)
 	}
 
 	chunk := &Chunk{
-		Sections: make([]ChunkSection, ChunkSectionCount),
+		Sections:      make([]ChunkSection, ChunkSectionCount),
+		BlockEntities: make(map[BlockPos]BlockEntity),
+		BlockActions:  make(map[BlockPos]BlockActionRecord),
 	}
 
 	for i := range sections {
@@ -138,6 +173,23 @@ func (bs *BlockStore) StoreChunk(chunkX, chunkZ int32, sections []ChunkSection) 
 		copied := make([]int32, BlocksPerSection)
 		copy(copied, sections[i].BlockStates)
 		chunk.Sections[i] = ChunkSection{BlockStates: copied}
+	}
+
+	for _, blockEntity := range blockEntities {
+		entityChunkX := int32(floorDiv16(blockEntity.X))
+		entityChunkZ := int32(floorDiv16(blockEntity.Z))
+		if entityChunkX != chunkX || entityChunkZ != chunkZ {
+			return fmt.Errorf(
+				"block entity (%d,%d,%d) does not belong to chunk (%d,%d)",
+				blockEntity.X,
+				blockEntity.Y,
+				blockEntity.Z,
+				chunkX,
+				chunkZ,
+			)
+		}
+		pos := BlockPos{X: blockEntity.X, Y: blockEntity.Y, Z: blockEntity.Z}
+		chunk.BlockEntities[pos] = blockEntity
 	}
 
 	bs.mu.Lock()
@@ -184,6 +236,93 @@ func (bs *BlockStore) SetBlockState(x, y, z int, stateID int32) bool {
 
 	chunk.Sections[sectionIndex].BlockStates[blockIndex] = stateID
 	return true
+}
+
+func (bs *BlockStore) UpdateTileEntityData(x, y, z int, action int32, nbtData any) bool {
+	chunkX := floorDiv16(x)
+	chunkZ := floorDiv16(z)
+
+	bs.mu.Lock()
+	defer bs.mu.Unlock()
+
+	chunk, ok := bs.chunks[ChunkPos{X: int32(chunkX), Z: int32(chunkZ)}]
+	if !ok {
+		return false
+	}
+	if chunk.BlockEntities == nil {
+		chunk.BlockEntities = make(map[BlockPos]BlockEntity)
+	}
+
+	pos := BlockPos{X: x, Y: y, Z: z}
+	entity := chunk.BlockEntities[pos]
+	entity.X = x
+	entity.Y = y
+	entity.Z = z
+	entity.Action = action
+	entity.HasAction = true
+	entity.NBTData = nbtData
+	chunk.BlockEntities[pos] = entity
+	return true
+}
+
+func (bs *BlockStore) GetBlockEntity(x, y, z int) (BlockEntity, bool) {
+	chunkX := floorDiv16(x)
+	chunkZ := floorDiv16(z)
+
+	bs.mu.RLock()
+	defer bs.mu.RUnlock()
+
+	chunk, ok := bs.chunks[ChunkPos{X: int32(chunkX), Z: int32(chunkZ)}]
+	if !ok || chunk.BlockEntities == nil {
+		return BlockEntity{}, false
+	}
+	pos := BlockPos{X: x, Y: y, Z: z}
+	entity, ok := chunk.BlockEntities[pos]
+	return entity, ok
+}
+
+func (bs *BlockStore) RecordBlockAction(x, y, z int, byte1, byte2 byte, blockID int32) bool {
+	chunkX := floorDiv16(x)
+	chunkZ := floorDiv16(z)
+
+	bs.mu.Lock()
+	defer bs.mu.Unlock()
+
+	chunk, ok := bs.chunks[ChunkPos{X: int32(chunkX), Z: int32(chunkZ)}]
+	if !ok {
+		return false
+	}
+	if chunk.BlockActions == nil {
+		chunk.BlockActions = make(map[BlockPos]BlockActionRecord)
+	}
+
+	pos := BlockPos{X: x, Y: y, Z: z}
+	chunk.BlockActions[pos] = BlockActionRecord{
+		X:         x,
+		Y:         y,
+		Z:         z,
+		Byte1:     byte1,
+		Byte2:     byte2,
+		BlockID:   blockID,
+		UpdatedAt: time.Now(),
+	}
+	return true
+}
+
+func (bs *BlockStore) GetLastBlockAction(x, y, z int) (BlockActionRecord, bool) {
+	chunkX := floorDiv16(x)
+	chunkZ := floorDiv16(z)
+
+	bs.mu.RLock()
+	defer bs.mu.RUnlock()
+
+	chunk, ok := bs.chunks[ChunkPos{X: int32(chunkX), Z: int32(chunkZ)}]
+	if !ok || chunk.BlockActions == nil {
+		return BlockActionRecord{}, false
+	}
+	pos := BlockPos{X: x, Y: y, Z: z}
+	action, ok := chunk.BlockActions[pos]
+	return action, ok
 }
 
 func (bs *BlockStore) IsLoaded(chunkX, chunkZ int32) bool {

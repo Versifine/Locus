@@ -253,6 +253,96 @@ func TestClearRemovesAllChunks(t *testing.T) {
 	}
 }
 
+func TestBlockStoreBlockEntityLifecycle(t *testing.T) {
+	bs := &BlockStore{
+		chunks:         make(map[ChunkPos]*Chunk),
+		solidByStateID: []bool{false},
+	}
+
+	sections := makeFilledSections(0)
+	err := bs.StoreChunkWithBlockEntities(0, 0, sections, []BlockEntity{
+		{
+			X:      2,
+			Y:      70,
+			Z:      3,
+			TypeID: 10,
+			NBTData: map[string]any{
+				"id": "minecraft:chest",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("StoreChunkWithBlockEntities failed: %v", err)
+	}
+
+	entity, ok := bs.GetBlockEntity(2, 70, 3)
+	if !ok {
+		t.Fatalf("GetBlockEntity should return initial block entity")
+	}
+	if entity.TypeID != 10 {
+		t.Fatalf("initial TypeID = %d, want 10", entity.TypeID)
+	}
+	if entity.HasAction {
+		t.Fatalf("initial HasAction should be false")
+	}
+
+	if ok := bs.UpdateTileEntityData(2, 70, 3, 7, map[string]any{"custom": "value"}); !ok {
+		t.Fatalf("UpdateTileEntityData should return true for loaded chunk")
+	}
+
+	entity, ok = bs.GetBlockEntity(2, 70, 3)
+	if !ok {
+		t.Fatalf("GetBlockEntity should return entity after tile update")
+	}
+	if entity.TypeID != 10 {
+		t.Fatalf("TypeID after tile update = %d, want 10", entity.TypeID)
+	}
+	if !entity.HasAction || entity.Action != 7 {
+		t.Fatalf("tile update action = (has:%v action:%d), want (true,7)", entity.HasAction, entity.Action)
+	}
+	nbt, ok := entity.NBTData.(map[string]any)
+	if !ok || nbt["custom"] != "value" {
+		t.Fatalf("tile update NBTData mismatch: %+v", entity.NBTData)
+	}
+
+	bs.UnloadChunk(0, 0)
+	if _, ok := bs.GetBlockEntity(2, 70, 3); ok {
+		t.Fatalf("GetBlockEntity should return false after unload")
+	}
+}
+
+func TestBlockStoreRecordBlockActionLifecycle(t *testing.T) {
+	bs := &BlockStore{
+		chunks:         make(map[ChunkPos]*Chunk),
+		solidByStateID: []bool{false},
+	}
+
+	sections := makeFilledSections(0)
+	if err := bs.StoreChunk(0, 0, sections); err != nil {
+		t.Fatalf("StoreChunk failed: %v", err)
+	}
+
+	if ok := bs.RecordBlockAction(2, 70, 3, 1, 2, 33); !ok {
+		t.Fatalf("RecordBlockAction should return true for loaded chunk")
+	}
+
+	action, ok := bs.GetLastBlockAction(2, 70, 3)
+	if !ok {
+		t.Fatalf("GetLastBlockAction should return action for loaded chunk")
+	}
+	if action.Byte1 != 1 || action.Byte2 != 2 || action.BlockID != 33 {
+		t.Fatalf("unexpected action payload: %+v", action)
+	}
+	if action.UpdatedAt.IsZero() {
+		t.Fatalf("UpdatedAt should be set")
+	}
+
+	bs.UnloadChunk(0, 0)
+	if _, ok := bs.GetLastBlockAction(2, 70, 3); ok {
+		t.Fatalf("GetLastBlockAction should return false after unload")
+	}
+}
+
 func makeFilledSections(fill int32) []ChunkSection {
 	sections := make([]ChunkSection, ChunkSectionCount)
 	for i := range sections {

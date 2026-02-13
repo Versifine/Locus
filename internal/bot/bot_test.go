@@ -186,7 +186,25 @@ func TestHandleLevelChunkWithLightAndUnload(t *testing.T) {
 	}
 }
 
+type chunkBlockEntityPayload struct {
+	LocalX byte
+	LocalZ byte
+	Y      int16
+	TypeID int32
+	NBTTag byte
+	NBTInt int32
+}
+
 func buildChunkPacketPayload(t *testing.T, chunkX, chunkZ int32, sectionStates map[int]int32) []byte {
+	return buildChunkPacketPayloadWithBlockEntities(t, chunkX, chunkZ, sectionStates, nil)
+}
+
+func buildChunkPacketPayloadWithBlockEntities(
+	t *testing.T,
+	chunkX, chunkZ int32,
+	sectionStates map[int]int32,
+	blockEntities []chunkBlockEntityPayload,
+) []byte {
 	t.Helper()
 
 	chunkData := new(bytes.Buffer)
@@ -213,12 +231,69 @@ func buildChunkPacketPayload(t *testing.T, chunkX, chunkZ int32, sectionStates m
 	_ = protocol.WriteVarint(payload, 0) // heightmaps array
 	_ = protocol.WriteVarint(payload, int32(chunkData.Len()))
 	_, _ = payload.Write(chunkData.Bytes())
-	_ = protocol.WriteVarint(payload, 0) // block entities count
-	for i := 0; i < 6; i++ {             // light data arrays
+	_ = protocol.WriteVarint(payload, int32(len(blockEntities)))
+	for _, be := range blockEntities {
+		_ = protocol.WriteByte(payload, byte((be.LocalX<<4)|(be.LocalZ&0x0F)))
+		_ = binary.Write(payload, binary.BigEndian, be.Y)
+		_ = protocol.WriteVarint(payload, be.TypeID)
+		_ = protocol.WriteByte(payload, be.NBTTag)
+		if be.NBTTag == protocol.TagInt {
+			_ = protocol.WriteInt32(payload, be.NBTInt)
+		}
+	}
+	for i := 0; i < 6; i++ { // light data arrays
 		_ = protocol.WriteVarint(payload, 0)
 	}
 
 	return payload.Bytes()
+}
+
+func TestHandleLevelChunkWithLightStoresBlockEntities(t *testing.T) {
+	blockStore, err := world.NewBlockStore()
+	if err != nil {
+		t.Fatalf("NewBlockStore failed: %v", err)
+	}
+	bot := &Bot{
+		worldState: &world.WorldState{},
+		blockStore: blockStore,
+	}
+
+	payload := buildChunkPacketPayloadWithBlockEntities(
+		t,
+		0,
+		0,
+		map[int]int32{7: 1234},
+		[]chunkBlockEntityPayload{
+			{
+				LocalX: 5,
+				LocalZ: 7,
+				Y:      70,
+				TypeID: 42,
+				NBTTag: protocol.TagInt,
+				NBTInt: 99,
+			},
+		},
+	)
+	bot.handleLevelChunkWithLight(payload)
+
+	entity, ok := bot.blockStore.GetBlockEntity(5, 70, 7)
+	if !ok {
+		t.Fatalf("GetBlockEntity should return block entity from chunk payload")
+	}
+	if entity.TypeID != 42 {
+		t.Fatalf("TypeID = %d, want 42", entity.TypeID)
+	}
+
+	nbtNode, ok := entity.NBTData.(*protocol.NBTNode)
+	if !ok || nbtNode == nil {
+		t.Fatalf("NBTData should be *protocol.NBTNode, got %+v", entity.NBTData)
+	}
+	if nbtNode.Type != protocol.TagInt {
+		t.Fatalf("NBTData.Type = %d, want TagInt", nbtNode.Type)
+	}
+	if v, ok := nbtNode.Value.(int32); !ok || v != 99 {
+		t.Fatalf("unexpected NBT value: %+v", nbtNode.Value)
+	}
 }
 
 func TestNormalizeSectionsForBlockStore16Sections(t *testing.T) {
@@ -346,6 +421,72 @@ func TestHandleBlockChangeUpdatesLoadedChunk(t *testing.T) {
 	}
 }
 
+func TestHandleTileEntityDataUpdatesBlockEntity(t *testing.T) {
+	blockStore, err := world.NewBlockStore()
+	if err != nil {
+		t.Fatalf("NewBlockStore failed: %v", err)
+	}
+	bot := &Bot{
+		worldState: &world.WorldState{},
+		blockStore: blockStore,
+	}
+
+	payload := buildChunkPacketPayloadWithBlockEntities(
+		t,
+		0,
+		0,
+		map[int]int32{7: 1234},
+		[]chunkBlockEntityPayload{
+			{
+				LocalX: 5,
+				LocalZ: 7,
+				Y:      70,
+				TypeID: 42,
+				NBTTag: protocol.TagInt,
+				NBTInt: 1,
+			},
+		},
+	)
+	bot.handleLevelChunkWithLight(payload)
+
+	tileUpdate := new(bytes.Buffer)
+	_ = protocol.WriteInt64(tileUpdate, packBlockPosition(5, 70, 7))
+	_ = protocol.WriteVarint(tileUpdate, 7)
+	_ = protocol.WriteByte(tileUpdate, protocol.TagInt)
+	_ = protocol.WriteInt32(tileUpdate, 777)
+	bot.handleTileEntityData(tileUpdate.Bytes())
+
+	entity, ok := bot.blockStore.GetBlockEntity(5, 70, 7)
+	if !ok {
+		t.Fatalf("GetBlockEntity should return updated block entity")
+	}
+	if entity.TypeID != 42 {
+		t.Fatalf("TypeID after tile update = %d, want 42", entity.TypeID)
+	}
+	if !entity.HasAction || entity.Action != 7 {
+		t.Fatalf("tile action = (has:%v action:%d), want (true,7)", entity.HasAction, entity.Action)
+	}
+
+	nbtNode, ok := entity.NBTData.(*protocol.NBTNode)
+	if !ok || nbtNode == nil {
+		t.Fatalf("NBTData should be *protocol.NBTNode, got %+v", entity.NBTData)
+	}
+	if nbtNode.Type != protocol.TagInt {
+		t.Fatalf("NBTData.Type = %d, want TagInt", nbtNode.Type)
+	}
+	if v, ok := nbtNode.Value.(int32); !ok || v != 777 {
+		t.Fatalf("unexpected NBT value after tile update: %+v", nbtNode.Value)
+	}
+
+	unloadPayload := new(bytes.Buffer)
+	_ = protocol.WriteInt32(unloadPayload, 0) // chunkZ first
+	_ = protocol.WriteInt32(unloadPayload, 0) // chunkX
+	bot.handleUnloadChunk(unloadPayload.Bytes())
+	if _, ok := bot.blockStore.GetBlockEntity(5, 70, 7); ok {
+		t.Fatalf("GetBlockEntity should return false after unload")
+	}
+}
+
 func TestHandleMultiBlockChangeUpdatesLoadedChunk(t *testing.T) {
 	blockStore, err := world.NewBlockStore()
 	if err != nil {
@@ -374,6 +515,35 @@ func TestHandleMultiBlockChangeUpdatesLoadedChunk(t *testing.T) {
 	}
 	if after != 1 {
 		t.Fatalf("after block state = %d, want 1", after)
+	}
+}
+
+func TestHandleBlockActionStoresRecentAction(t *testing.T) {
+	blockStore, err := world.NewBlockStore()
+	if err != nil {
+		t.Fatalf("NewBlockStore failed: %v", err)
+	}
+	bot := &Bot{
+		worldState: &world.WorldState{},
+		blockStore: blockStore,
+	}
+
+	payload := buildChunkPacketPayload(t, 0, 0, map[int]int32{7: 1234})
+	bot.handleLevelChunkWithLight(payload)
+
+	actionPayload := new(bytes.Buffer)
+	_ = protocol.WriteInt64(actionPayload, packBlockPosition(5, 70, 7))
+	_ = protocol.WriteByte(actionPayload, 1)
+	_ = protocol.WriteByte(actionPayload, 2)
+	_ = protocol.WriteVarint(actionPayload, 33)
+	bot.handleBlockAction(actionPayload.Bytes())
+
+	action, ok := bot.blockStore.GetLastBlockAction(5, 70, 7)
+	if !ok {
+		t.Fatalf("GetLastBlockAction should return recorded action")
+	}
+	if action.Byte1 != 1 || action.Byte2 != 2 || action.BlockID != 33 {
+		t.Fatalf("unexpected action payload: %+v", action)
 	}
 }
 

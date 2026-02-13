@@ -78,6 +78,66 @@ func TestParseLevelChunkWithLight(t *testing.T) {
 	}
 }
 
+func TestParseLevelChunkWithLightBlockEntities(t *testing.T) {
+	chunkData := new(bytes.Buffer)
+	for section := 0; section < ChunkSectionCount; section++ {
+		if err := writeInt16(chunkData, int16(4096)); err != nil {
+			t.Fatalf("write block count failed: %v", err)
+		}
+		_ = WriteByte(chunkData, 0)   // block states: single-value
+		_ = WriteVarint(chunkData, 0) // air
+		_ = WriteVarint(chunkData, 0) // data array length
+		_ = WriteByte(chunkData, 0)   // biomes: single-value
+		_ = WriteVarint(chunkData, 0) // biome id
+		_ = WriteVarint(chunkData, 0) // biome data array length
+	}
+
+	payload := new(bytes.Buffer)
+	_ = WriteInt32(payload, 2)  // chunkX
+	_ = WriteInt32(payload, -3) // chunkZ
+	_ = WriteVarint(payload, 0) // Heightmaps array
+	_ = WriteVarint(payload, int32(chunkData.Len()))
+	_, _ = payload.Write(chunkData.Bytes())
+
+	// One block entity at local (5,7), global y=70.
+	_ = WriteVarint(payload, 1)
+	_ = WriteByte(payload, byte((5<<4)|7))
+	_ = writeInt16(payload, 70)
+	_ = WriteVarint(payload, 42)
+	_ = WriteByte(payload, TagInt)
+	_ = WriteInt32(payload, 99)
+
+	for i := 0; i < 6; i++ {
+		_ = WriteVarint(payload, 0)
+	}
+
+	got, err := ParseLevelChunkWithLight(bytes.NewReader(payload.Bytes()))
+	if err != nil {
+		t.Fatalf("ParseLevelChunkWithLight failed: %v", err)
+	}
+
+	if got.BlockEntityCount != 1 {
+		t.Fatalf("BlockEntityCount = %d, want 1", got.BlockEntityCount)
+	}
+	if len(got.BlockEntities) != 1 {
+		t.Fatalf("len(BlockEntities) = %d, want 1", len(got.BlockEntities))
+	}
+
+	be := got.BlockEntities[0]
+	if be.X != 37 || be.Y != 70 || be.Z != -41 {
+		t.Fatalf("unexpected block entity coords: got (%d,%d,%d), want (37,70,-41)", be.X, be.Y, be.Z)
+	}
+	if be.TypeID != 42 {
+		t.Fatalf("block entity type id = %d, want 42", be.TypeID)
+	}
+	if be.NBTData == nil || be.NBTData.Type != TagInt {
+		t.Fatalf("expected TagInt NBTData, got %+v", be.NBTData)
+	}
+	if v, ok := be.NBTData.Value.(int32); !ok || v != 99 {
+		t.Fatalf("unexpected block entity NBT value: %+v", be.NBTData.Value)
+	}
+}
+
 func TestParseChunkSectionsWithoutBiomesFallback(t *testing.T) {
 	chunkData := new(bytes.Buffer)
 	for section := 0; section < ChunkSectionCount; section++ {

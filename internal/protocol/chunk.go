@@ -19,6 +19,15 @@ type ChunkSection struct {
 	BlockStates []int32
 }
 
+// ChunkBlockEntity represents a block entity embedded in map_chunk payload.
+type ChunkBlockEntity struct {
+	X       int
+	Y       int
+	Z       int
+	TypeID  int32
+	NBTData *NBTNode
+}
+
 // LevelChunkWithLight is the S2C map_chunk packet payload (protocol 774).
 type LevelChunkWithLight struct {
 	ChunkX           int32
@@ -29,6 +38,7 @@ type LevelChunkWithLight struct {
 	SectionCount     int
 	HasBiomeData     bool
 	BlockEntityCount int32
+	BlockEntities    []ChunkBlockEntity
 }
 
 type Heightmap struct {
@@ -75,10 +85,13 @@ func ParseLevelChunkWithLight(r io.Reader) (*LevelChunkWithLight, error) {
 	if blockEntityCount < 0 {
 		return nil, fmt.Errorf("invalid block entity count: %d", blockEntityCount)
 	}
+	blockEntities := make([]ChunkBlockEntity, 0, blockEntityCount)
 	for i := int32(0); i < blockEntityCount; i++ {
-		if err := skipChunkBlockEntity(r); err != nil {
+		blockEntity, err := parseChunkBlockEntity(r, chunkX, chunkZ)
+		if err != nil {
 			return nil, fmt.Errorf("failed to parse block entity %d: %w", i, err)
 		}
+		blockEntities = append(blockEntities, blockEntity)
 	}
 
 	if err := skipLightData(r); err != nil {
@@ -94,6 +107,7 @@ func ParseLevelChunkWithLight(r io.Reader) (*LevelChunkWithLight, error) {
 		SectionCount:     sectionCount,
 		HasBiomeData:     hasBiomeData,
 		BlockEntityCount: blockEntityCount,
+		BlockEntities:    blockEntities,
 	}, nil
 }
 
@@ -446,6 +460,44 @@ func skipChunkBlockEntity(r io.Reader) error {
 	}
 	_, err := ReadAnonymousNBT(r)
 	return err
+}
+
+func parseChunkBlockEntity(r io.Reader, chunkX, chunkZ int32) (ChunkBlockEntity, error) {
+	packedXZ, err := ReadByte(r)
+	if err != nil {
+		return ChunkBlockEntity{}, fmt.Errorf("read packed xz: %w", err)
+	}
+
+	y, err := ReadInt16(r)
+	if err != nil {
+		return ChunkBlockEntity{}, fmt.Errorf("read y: %w", err)
+	}
+
+	typeID, err := ReadVarint(r)
+	if err != nil {
+		return ChunkBlockEntity{}, fmt.Errorf("read type id: %w", err)
+	}
+	if typeID < 0 {
+		return ChunkBlockEntity{}, fmt.Errorf("invalid block entity type id: %d", typeID)
+	}
+
+	nbtData, err := ReadAnonymousNBT(r)
+	if err != nil {
+		return ChunkBlockEntity{}, fmt.Errorf("read block entity nbt: %w", err)
+	}
+	if nbtData != nil && nbtData.Type == TagEnd {
+		nbtData = nil
+	}
+
+	localX := int((packedXZ >> 4) & 0x0F)
+	localZ := int(packedXZ & 0x0F)
+	return ChunkBlockEntity{
+		X:       int(chunkX)*16 + localX,
+		Y:       int(y),
+		Z:       int(chunkZ)*16 + localZ,
+		TypeID:  typeID,
+		NBTData: nbtData,
+	}, nil
 }
 
 func skipLightData(r io.Reader) error {
