@@ -8,15 +8,23 @@ import (
 const (
 	maxIndirectPaletteBits = 8
 	maxPaletteBitsPerEntry = 32
+	maxBiomePaletteBits    = 3
 )
 
 // ParsePalettedContainer parses a paletted container and expands it to entryCount block-state IDs.
 func ParsePalettedContainer(r io.Reader, entryCount int) ([]int32, error) {
+	return parsePalettedContainer(r, entryCount, maxIndirectPaletteBits)
+}
+
+func parsePalettedContainer(r io.Reader, entryCount int, indirectMaxBits int) ([]int32, error) {
 	if entryCount < 0 {
 		return nil, fmt.Errorf("invalid entry count: %d", entryCount)
 	}
 	if entryCount == 0 {
 		return []int32{}, nil
+	}
+	if indirectMaxBits <= 0 || indirectMaxBits > maxIndirectPaletteBits {
+		return nil, fmt.Errorf("invalid indirect max bits: %d", indirectMaxBits)
 	}
 
 	bitsByte, err := ReadByte(r)
@@ -33,6 +41,18 @@ func ParsePalettedContainer(r io.Reader, entryCount int) ([]int32, error) {
 		if err != nil {
 			return nil, err
 		}
+		dataArrayLen, err := ReadVarint(r)
+		if err != nil {
+			return nil, err
+		}
+		if dataArrayLen < 0 {
+			return nil, fmt.Errorf("invalid data array length: %d", dataArrayLen)
+		}
+		for i := int32(0); i < dataArrayLen; i++ {
+			if _, err := ReadInt64(r); err != nil {
+				return nil, err
+			}
+		}
 		expanded := make([]int32, entryCount)
 		for i := range expanded {
 			expanded[i] = value
@@ -40,7 +60,7 @@ func ParsePalettedContainer(r io.Reader, entryCount int) ([]int32, error) {
 		return expanded, nil
 	}
 
-	isIndirect := bitsPerEntry <= maxIndirectPaletteBits
+	isIndirect := bitsPerEntry <= indirectMaxBits
 	var palette []int32
 	if isIndirect {
 		paletteLen, err := ReadVarint(r)
@@ -75,6 +95,23 @@ func ParsePalettedContainer(r io.Reader, entryCount int) ([]int32, error) {
 			return nil, err
 		}
 		packed[i] = uint64(v)
+	}
+
+	// Some servers encode a full section with no packed data array.
+	// In that case every entry index/value is 0.
+	if dataArrayLen == 0 {
+		if isIndirect {
+			if len(palette) == 0 {
+				return nil, fmt.Errorf("invalid empty palette for bitsPerEntry=%d", bitsPerEntry)
+			}
+			expanded := make([]int32, entryCount)
+			for i := range expanded {
+				expanded[i] = palette[0]
+			}
+			return expanded, nil
+		}
+		// direct palette: global state ID 0
+		return make([]int32, entryCount), nil
 	}
 
 	values, err := unpackPalettedValues(packed, bitsPerEntry, entryCount)

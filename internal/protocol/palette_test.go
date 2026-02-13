@@ -9,6 +9,7 @@ func TestParsePalettedContainerSingleValue(t *testing.T) {
 	buf := new(bytes.Buffer)
 	_ = WriteByte(buf, 0)      // bitsPerEntry
 	_ = WriteVarint(buf, 1234) // single state ID
+	_ = WriteVarint(buf, 0)    // data array length
 
 	got, err := ParsePalettedContainer(buf, 32)
 	if err != nil {
@@ -108,6 +109,79 @@ func TestParsePalettedContainerInvalidPaletteIndex(t *testing.T) {
 	_, err := ParsePalettedContainer(buf, len(indices))
 	if err == nil {
 		t.Fatal("expected error for out-of-range palette index, got nil")
+	}
+}
+
+func TestParsePalettedContainerIndirectSinglePaletteNoDataArray(t *testing.T) {
+	buf := new(bytes.Buffer)
+	_ = WriteByte(buf, 4)    // indirect
+	_ = WriteVarint(buf, 1)  // palette length
+	_ = WriteVarint(buf, 42) // only palette value
+	_ = WriteVarint(buf, 0)  // no packed data
+
+	got, err := ParsePalettedContainer(buf, 128)
+	if err != nil {
+		t.Fatalf("ParsePalettedContainer failed: %v", err)
+	}
+	if len(got) != 128 {
+		t.Fatalf("unexpected result length: got %d, want 128", len(got))
+	}
+	for i, v := range got {
+		if v != 42 {
+			t.Fatalf("entry %d = %d, want 42", i, v)
+		}
+	}
+}
+
+func TestParsePalettedContainerIndirectMultiPaletteNoDataArray(t *testing.T) {
+	buf := new(bytes.Buffer)
+	_ = WriteByte(buf, 4) // indirect
+	_ = WriteVarint(buf, 3)
+	_ = WriteVarint(buf, 99)
+	_ = WriteVarint(buf, 100)
+	_ = WriteVarint(buf, 101)
+	_ = WriteVarint(buf, 0) // no packed data => all index 0
+
+	got, err := ParsePalettedContainer(buf, 32)
+	if err != nil {
+		t.Fatalf("ParsePalettedContainer failed: %v", err)
+	}
+	if len(got) != 32 {
+		t.Fatalf("unexpected result length: got %d, want 32", len(got))
+	}
+	for i, v := range got {
+		if v != 99 {
+			t.Fatalf("entry %d = %d, want 99", i, v)
+		}
+	}
+}
+
+func TestParsePalettedContainerBiomeDirectThreshold(t *testing.T) {
+	// For biomes, bitsPerEntry=4 should be treated as direct palette (no local palette).
+	values := make([]uint32, 64)
+	for i := range values {
+		values[i] = uint32(i % 16)
+	}
+
+	buf := new(bytes.Buffer)
+	_ = WriteByte(buf, 4)
+	packed := packCompacted(values, 4)
+	_ = WriteVarint(buf, int32(len(packed)))
+	for _, v := range packed {
+		_ = WriteInt64(buf, int64(v))
+	}
+
+	got, err := parsePalettedContainer(buf, 64, maxBiomePaletteBits)
+	if err != nil {
+		t.Fatalf("parsePalettedContainer failed: %v", err)
+	}
+	if len(got) != 64 {
+		t.Fatalf("unexpected result length: got %d, want 64", len(got))
+	}
+	for i, v := range got {
+		if v != int32(values[i]) {
+			t.Fatalf("entry %d = %d, want %d", i, v, values[i])
+		}
 	}
 }
 

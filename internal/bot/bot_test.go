@@ -3,11 +3,17 @@ package bot
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
+	"errors"
 	"net"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Versifine/locus/internal/protocol"
+	"github.com/Versifine/locus/internal/world"
 )
 
 func TestBotLoginAndConfig(t *testing.T) {
@@ -132,5 +138,176 @@ func TestBotLoginAndConfig(t *testing.T) {
 		}
 	case <-ctx.Done():
 		t.Fatal("Test timed out")
+	}
+}
+
+func TestHandleLevelChunkWithLightAndUnload(t *testing.T) {
+	blockStore, err := world.NewBlockStore()
+	if err != nil {
+		t.Fatalf("NewBlockStore failed: %v", err)
+	}
+
+	bot := &Bot{
+		worldState: &world.WorldState{},
+		blockStore: blockStore,
+	}
+	bot.worldState.UpdatePosition(world.Position{X: 1.2, Y: 64.0, Z: 2.8})
+
+	payload := buildChunkPacketPayload(t, 0, 0, map[int]int32{
+		7: 1234, // section containing y=63 (under feet when y=64)
+	})
+	bot.handleLevelChunkWithLight(payload)
+
+	if !bot.blockStore.IsLoaded(0, 0) {
+		t.Fatalf("chunk (0,0) should be loaded")
+	}
+	if bot.blockStore.LoadedChunkCount() != 1 {
+		t.Fatalf("LoadedChunkCount = %d, want 1", bot.blockStore.LoadedChunkCount())
+	}
+
+	state, ok := bot.GetBlockState(1, 63, 2)
+	if !ok {
+		t.Fatalf("GetBlockState(1,63,2) should return loaded block")
+	}
+	if state != 1234 {
+		t.Fatalf("GetBlockState(1,63,2) = %d, want 1234", state)
+	}
+
+	unloadPayload := new(bytes.Buffer)
+	_ = protocol.WriteInt32(unloadPayload, 0) // chunkZ first
+	_ = protocol.WriteInt32(unloadPayload, 0) // chunkX
+	bot.handleUnloadChunk(unloadPayload.Bytes())
+
+	if bot.blockStore.IsLoaded(0, 0) {
+		t.Fatalf("chunk (0,0) should be unloaded")
+	}
+	if bot.blockStore.LoadedChunkCount() != 0 {
+		t.Fatalf("LoadedChunkCount = %d, want 0", bot.blockStore.LoadedChunkCount())
+	}
+}
+
+func buildChunkPacketPayload(t *testing.T, chunkX, chunkZ int32, sectionStates map[int]int32) []byte {
+	t.Helper()
+
+	chunkData := new(bytes.Buffer)
+	for section := 0; section < protocol.ChunkSectionCount; section++ {
+		stateID := int32(0)
+		if v, ok := sectionStates[section]; ok {
+			stateID = v
+		}
+
+		if err := binary.Write(chunkData, binary.BigEndian, int16(4096)); err != nil {
+			t.Fatalf("write block count failed: %v", err)
+		}
+		_ = protocol.WriteByte(chunkData, 0)         // block states: single value
+		_ = protocol.WriteVarint(chunkData, stateID) // block state id
+		_ = protocol.WriteVarint(chunkData, 0)       // block states data array length
+		_ = protocol.WriteByte(chunkData, 0)         // biomes: single value
+		_ = protocol.WriteVarint(chunkData, 0)
+		_ = protocol.WriteVarint(chunkData, 0) // biomes data array length
+	}
+
+	payload := new(bytes.Buffer)
+	_ = protocol.WriteInt32(payload, chunkX)
+	_ = protocol.WriteInt32(payload, chunkZ)
+	_ = protocol.WriteVarint(payload, 0) // heightmaps array
+	_ = protocol.WriteVarint(payload, int32(chunkData.Len()))
+	_, _ = payload.Write(chunkData.Bytes())
+	_ = protocol.WriteVarint(payload, 0) // block entities count
+	for i := 0; i < 6; i++ {             // light data arrays
+		_ = protocol.WriteVarint(payload, 0)
+	}
+
+	return payload.Bytes()
+}
+
+func TestNormalizeSectionsForBlockStore16Sections(t *testing.T) {
+	parsed := make([]protocol.ChunkSection, 16)
+	for i := range parsed {
+		states := make([]int32, world.BlocksPerSection)
+		for j := range states {
+			states[j] = int32(500 + i)
+		}
+		parsed[i] = protocol.ChunkSection{
+			BlockCount:  4096,
+			BlockStates: states,
+		}
+	}
+
+	normalized, err := normalizeSectionsForBlockStore(parsed)
+	if err != nil {
+		t.Fatalf("normalizeSectionsForBlockStore failed: %v", err)
+	}
+	if len(normalized) != world.ChunkSectionCount {
+		t.Fatalf("len(normalized) = %d, want %d", len(normalized), world.ChunkSectionCount)
+	}
+
+	// 16 sections should be centered into 24 => offset 4.
+	if normalized[4].BlockStates[0] != 500 {
+		t.Fatalf("normalized[4].BlockStates[0] = %d, want 500", normalized[4].BlockStates[0])
+	}
+	if normalized[19].BlockStates[0] != 515 {
+		t.Fatalf("normalized[19].BlockStates[0] = %d, want 515", normalized[19].BlockStates[0])
+	}
+	if normalized[0].BlockStates[0] != 0 {
+		t.Fatalf("normalized[0].BlockStates[0] = %d, want 0 for padded section", normalized[0].BlockStates[0])
+	}
+	if normalized[23].BlockStates[0] != 0 {
+		t.Fatalf("normalized[23].BlockStates[0] = %d, want 0 for padded section", normalized[23].BlockStates[0])
+	}
+}
+
+func TestCaptureFailedChunkPayloadLimitAndFiles(t *testing.T) {
+	captureDir := filepath.Join(t.TempDir(), "captures")
+	b := &Bot{
+		chunkCaptureDir: captureDir,
+		chunkCaptureMax: 2,
+	}
+
+	payload := make([]byte, 16)
+	var chunkX int32 = 12
+	var chunkZ int32 = -34
+	binary.BigEndian.PutUint32(payload[0:4], uint32(chunkX))
+	binary.BigEndian.PutUint32(payload[4:8], uint32(chunkZ))
+
+	b.captureFailedChunkPayload(payload, errors.New("parse fail #1"))
+	files, err := os.ReadDir(captureDir)
+	if err != nil {
+		t.Fatalf("ReadDir failed: %v", err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("after first capture file count = %d, want 2 (.bin + .json)", len(files))
+	}
+
+	var hasBin bool
+	var hasJSON bool
+	for _, f := range files {
+		if strings.HasSuffix(f.Name(), ".bin") {
+			hasBin = true
+		}
+		if strings.HasSuffix(f.Name(), ".json") {
+			hasJSON = true
+		}
+	}
+	if !hasBin || !hasJSON {
+		t.Fatalf("first capture should create both .bin and .json files")
+	}
+
+	b.captureFailedChunkPayload(payload, errors.New("parse fail #2"))
+	files, err = os.ReadDir(captureDir)
+	if err != nil {
+		t.Fatalf("ReadDir failed: %v", err)
+	}
+	if len(files) != 4 {
+		t.Fatalf("after second capture file count = %d, want 4", len(files))
+	}
+
+	b.captureFailedChunkPayload(payload, errors.New("parse fail #3"))
+	files, err = os.ReadDir(captureDir)
+	if err != nil {
+		t.Fatalf("ReadDir failed: %v", err)
+	}
+	if len(files) != 4 {
+		t.Fatalf("after third capture (over limit) file count = %d, want 4", len(files))
 	}
 }

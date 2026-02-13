@@ -3,16 +3,28 @@ package bot
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net"
+	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/Versifine/locus/internal/event"
 	"github.com/Versifine/locus/internal/protocol"
 	"github.com/Versifine/locus/internal/world"
+)
+
+const (
+	defaultChunkCaptureDir = "temp/chunk_payloads"
+	defaultChunkCaptureMax = 8
 )
 
 type Bot struct {
@@ -23,11 +35,21 @@ type Bot struct {
 	connState  *protocol.ConnState
 	eventBus   *event.Bus
 	worldState *world.WorldState
+	blockStore *world.BlockStore
 	injectCh   chan string
 	mu         sync.RWMutex
+
+	chunkCaptureMu    sync.Mutex
+	chunkCaptureDir   string
+	chunkCaptureMax   int
+	chunkCaptureCount int
 }
 
 func NewBot(serverAddr, username string) *Bot {
+	blockStore, err := world.NewBlockStore()
+	if err != nil {
+		slog.Error("Failed to initialize block store", "error", err)
+	}
 	return &Bot{
 		serverAddr: serverAddr,
 		username:   username,
@@ -35,6 +57,10 @@ func NewBot(serverAddr, username string) *Bot {
 		eventBus:   event.NewBus(),
 		injectCh:   make(chan string, 100),
 		worldState: &world.WorldState{},
+		blockStore: blockStore,
+
+		chunkCaptureDir: defaultChunkCaptureDir,
+		chunkCaptureMax: defaultChunkCaptureMax,
 	}
 }
 
@@ -222,9 +248,14 @@ func (b *Bot) handlePlayState(ctx context.Context) error {
 				Yaw:   playerPos.Yaw,
 				Pitch: playerPos.Pitch,
 			})
+			b.logBlockUnderFeetState()
 			if err := b.writePacket(b.conn, teleCfmPacket, b.connState.GetThreshold()); err != nil {
 				return err
 			}
+		case protocol.S2CLevelChunkWithLight:
+			b.handleLevelChunkWithLight(packet.Payload)
+		case protocol.S2CUnloadChunk:
+			b.handleUnloadChunk(packet.Payload)
 		case protocol.S2CUpdateHealth:
 			packetRdr := bytes.NewReader(packet.Payload)
 			updateHealth, err := protocol.ParseUpdateHealth(packetRdr)
@@ -353,6 +384,88 @@ func (b *Bot) handlePlayState(ctx context.Context) error {
 
 	}
 }
+
+func (b *Bot) handleLevelChunkWithLight(payload []byte) {
+	if b.blockStore == nil {
+		slog.Warn("Skipping chunk load because block store is not initialized")
+		return
+	}
+
+	packetRdr := bytes.NewReader(payload)
+	chunk, err := protocol.ParseLevelChunkWithLight(packetRdr)
+	if err != nil {
+		b.captureFailedChunkPayload(payload, err)
+		slog.Warn("Failed to parse level chunk with light", "error", err, "payload_len", len(payload))
+		return
+	}
+
+	sections, normalizeErr := normalizeSectionsForBlockStore(chunk.Sections)
+	if normalizeErr != nil {
+		slog.Warn(
+			"Failed to normalize chunk sections for block store",
+			"chunk_x", chunk.ChunkX,
+			"chunk_z", chunk.ChunkZ,
+			"parsed_section_count", chunk.SectionCount,
+			"has_biome_data", chunk.HasBiomeData,
+			"error", normalizeErr,
+		)
+		return
+	}
+	if err := b.blockStore.StoreChunk(chunk.ChunkX, chunk.ChunkZ, sections); err != nil {
+		slog.Warn("Failed to store chunk", "chunk_x", chunk.ChunkX, "chunk_z", chunk.ChunkZ, "error", err)
+		return
+	}
+
+	slog.Debug(
+		"Parsed chunk section format",
+		"chunk_x", chunk.ChunkX,
+		"chunk_z", chunk.ChunkZ,
+		"parsed_section_count", chunk.SectionCount,
+		"has_biome_data", chunk.HasBiomeData,
+	)
+	slog.Info(fmt.Sprintf("Loaded %d chunks", b.blockStore.LoadedChunkCount()))
+	b.logBlockUnderFeetState()
+}
+
+func (b *Bot) handleUnloadChunk(payload []byte) {
+	if b.blockStore == nil {
+		slog.Warn("Skipping chunk unload because block store is not initialized")
+		return
+	}
+
+	packetRdr := bytes.NewReader(payload)
+	unload, err := protocol.ParseUnloadChunk(packetRdr)
+	if err != nil {
+		slog.Warn("Failed to parse unload chunk", "error", err)
+		return
+	}
+
+	b.blockStore.UnloadChunk(unload.ChunkX, unload.ChunkZ)
+	slog.Info(fmt.Sprintf("Loaded %d chunks", b.blockStore.LoadedChunkCount()))
+}
+
+func (b *Bot) logBlockUnderFeetState() {
+	if b.blockStore == nil || b.worldState == nil {
+		return
+	}
+
+	pos := b.worldState.GetState().Position
+	blockX := int(math.Floor(pos.X))
+	blockY := int(math.Floor(pos.Y)) - 1
+	blockZ := int(math.Floor(pos.Z))
+
+	stateID, ok := b.blockStore.GetBlockState(blockX, blockY, blockZ)
+	if !ok {
+		return
+	}
+
+	slog.Info("Block under feet state",
+		"x", blockX,
+		"y", blockY,
+		"z", blockZ,
+		"state_id", stateID,
+	)
+}
 func (b *Bot) handleInjection(ctx context.Context) error {
 	for {
 		select {
@@ -384,4 +497,139 @@ func (b *Bot) SendMsgToServer(msg string) error {
 }
 func (b *Bot) GetState() world.Snapshot {
 	return b.worldState.GetState()
+}
+
+func (b *Bot) GetBlockState(x, y, z int) (int32, bool) {
+	if b.blockStore == nil {
+		return 0, false
+	}
+	return b.blockStore.GetBlockState(x, y, z)
+}
+
+func normalizeSectionsForBlockStore(parsed []protocol.ChunkSection) ([]world.ChunkSection, error) {
+	if len(parsed) == 0 {
+		return nil, fmt.Errorf("no parsed sections")
+	}
+	if len(parsed) > world.ChunkSectionCount {
+		return nil, fmt.Errorf("too many parsed sections: %d", len(parsed))
+	}
+
+	offset := (world.ChunkSectionCount - len(parsed)) / 2
+	if offset < 0 {
+		offset = 0
+	}
+
+	normalized := make([]world.ChunkSection, world.ChunkSectionCount)
+	for i := range normalized {
+		normalized[i] = world.ChunkSection{BlockStates: make([]int32, world.BlocksPerSection)}
+	}
+
+	for i, section := range parsed {
+		target := i + offset
+		if target < 0 || target >= len(normalized) {
+			return nil, fmt.Errorf("section index out of range after normalize: parsed=%d target=%d", i, target)
+		}
+		if len(section.BlockStates) != world.BlocksPerSection {
+			return nil, fmt.Errorf(
+				"invalid parsed section %d block state len: got %d, want %d",
+				i,
+				len(section.BlockStates),
+				world.BlocksPerSection,
+			)
+		}
+		copy(normalized[target].BlockStates, section.BlockStates)
+	}
+
+	return normalized, nil
+}
+
+type chunkCaptureMeta struct {
+	CapturedAt string `json:"captured_at"`
+	ParseError string `json:"parse_error"`
+	PayloadLen int    `json:"payload_len"`
+
+	HasChunkCoord bool  `json:"has_chunk_coord"`
+	ChunkX        int32 `json:"chunk_x,omitempty"`
+	ChunkZ        int32 `json:"chunk_z,omitempty"`
+
+	PayloadFile string `json:"payload_file"`
+	PrefixHex64 string `json:"prefix_hex_64"`
+}
+
+func (b *Bot) captureFailedChunkPayload(payload []byte, parseErr error) {
+	if b.chunkCaptureMax <= 0 || b.chunkCaptureDir == "" {
+		return
+	}
+
+	b.chunkCaptureMu.Lock()
+	defer b.chunkCaptureMu.Unlock()
+
+	if b.chunkCaptureCount >= b.chunkCaptureMax {
+		return
+	}
+	b.chunkCaptureCount++
+	index := b.chunkCaptureCount
+
+	if err := os.MkdirAll(b.chunkCaptureDir, 0o755); err != nil {
+		slog.Warn("Failed to create chunk payload capture dir", "dir", b.chunkCaptureDir, "error", err)
+		return
+	}
+
+	hasCoord, chunkX, chunkZ := extractChunkCoords(payload)
+	ts := time.Now().Format("20060102_150405_000")
+	baseName := fmt.Sprintf("%s_%02d_len%d", ts, index, len(payload))
+	if hasCoord {
+		baseName = fmt.Sprintf("%s_x%d_z%d", baseName, chunkX, chunkZ)
+	}
+
+	payloadFile := filepath.Join(b.chunkCaptureDir, baseName+".bin")
+	if err := os.WriteFile(payloadFile, payload, 0o644); err != nil {
+		slog.Warn("Failed to write chunk payload capture file", "file", payloadFile, "error", err)
+		return
+	}
+
+	prefixLen := len(payload)
+	if prefixLen > 64 {
+		prefixLen = 64
+	}
+
+	meta := chunkCaptureMeta{
+		CapturedAt:    time.Now().Format(time.RFC3339Nano),
+		ParseError:    fmt.Sprintf("%v", parseErr),
+		PayloadLen:    len(payload),
+		HasChunkCoord: hasCoord,
+		ChunkX:        chunkX,
+		ChunkZ:        chunkZ,
+		PayloadFile:   filepath.Base(payloadFile),
+		PrefixHex64:   hex.EncodeToString(payload[:prefixLen]),
+	}
+	metaBytes, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		slog.Warn("Failed to encode chunk payload capture meta", "error", err)
+		return
+	}
+
+	metaFile := filepath.Join(b.chunkCaptureDir, baseName+".json")
+	if err := os.WriteFile(metaFile, metaBytes, 0o644); err != nil {
+		slog.Warn("Failed to write chunk payload capture meta file", "file", metaFile, "error", err)
+		return
+	}
+
+	slog.Info(
+		"Captured failed chunk payload",
+		"index", index,
+		"max", b.chunkCaptureMax,
+		"payload_file", payloadFile,
+		"meta_file", metaFile,
+		"parse_error", parseErr,
+	)
+}
+
+func extractChunkCoords(payload []byte) (bool, int32, int32) {
+	if len(payload) < 8 {
+		return false, 0, 0
+	}
+	chunkX := int32(binary.BigEndian.Uint32(payload[0:4]))
+	chunkZ := int32(binary.BigEndian.Uint32(payload[4:8]))
+	return true, chunkX, chunkZ
 }

@@ -145,6 +145,12 @@ func (bs *BlockStore) IsLoaded(chunkX, chunkZ int32) bool {
 	return ok
 }
 
+func (bs *BlockStore) LoadedChunkCount() int {
+	bs.mu.RLock()
+	defer bs.mu.RUnlock()
+	return len(bs.chunks)
+}
+
 func (bs *BlockStore) GetBlockState(x, y, z int) (int32, bool) {
 	if y < ChunkMinY || y > ChunkMaxY {
 		return 0, false

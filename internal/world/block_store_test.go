@@ -61,6 +61,9 @@ func TestBlockStoreStoreGetAndUnloadChunk(t *testing.T) {
 	if !bs.IsLoaded(0, 0) {
 		t.Fatalf("chunk (0,0) should be loaded")
 	}
+	if bs.LoadedChunkCount() != 1 {
+		t.Fatalf("LoadedChunkCount = %d, want 1", bs.LoadedChunkCount())
+	}
 
 	state, ok := bs.GetBlockState(2, 70, 3)
 	if !ok {
@@ -76,6 +79,9 @@ func TestBlockStoreStoreGetAndUnloadChunk(t *testing.T) {
 	bs.UnloadChunk(0, 0)
 	if bs.IsLoaded(0, 0) {
 		t.Fatalf("chunk (0,0) should be unloaded")
+	}
+	if bs.LoadedChunkCount() != 0 {
+		t.Fatalf("LoadedChunkCount = %d, want 0", bs.LoadedChunkCount())
 	}
 	if _, ok := bs.GetBlockState(2, 70, 3); ok {
 		t.Fatalf("GetBlockState should return false after unload")
