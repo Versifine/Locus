@@ -175,6 +175,9 @@ func TestPacketIDsConsistency(t *testing.T) {
 		checkID(t, m, "keep_alive", C2SPlayKeepAlive)
 		checkID(t, m, "teleport_confirm", C2STeleportConfirm)
 		checkID(t, m, "settings", C2SPlayClientInformation)
+		checkID(t, m, "position", C2SPlayerPosition)
+		checkID(t, m, "position_look", C2SPlayerPositionLook)
+		checkID(t, m, "look", C2SPlayerRotation)
 		checkID(t, m, "block_dig", C2SBlockDig)
 	})
 }

@@ -350,7 +350,6 @@ func (b *Bot) handlePlayState(ctx context.Context) error {
 				playerPos.Yaw,
 				playerPos.Pitch,
 				false,
-				false,
 			)
 			if err := b.writePacket(b.conn, posAck, b.connState.GetThreshold()); err != nil {
 				return err

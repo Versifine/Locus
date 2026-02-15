@@ -41,6 +41,16 @@ func (b *Bot) SendMsgToServer(msg string) error {
 	return nil
 }
 
+func (b *Bot) SendPacket(packet *protocol.Packet) error {
+	if packet == nil {
+		return fmt.Errorf("packet is nil")
+	}
+	if b.conn == nil || b.connState == nil {
+		return fmt.Errorf("connection is not initialized")
+	}
+	return b.writePacket(b.conn, packet, b.connState.GetThreshold())
+}
+
 func (b *Bot) GetState() world.Snapshot {
 	return b.worldState.GetState()
 }
