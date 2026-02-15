@@ -76,6 +76,7 @@ func (b *Bot) handlePlayLogin(payload []byte) {
 		return
 	}
 
+	b.setSelfEntityID(login.EntityID)
 	b.worldState.UpdateDimensionContext(login.WorldState.Name, login.SimulationDistance)
 	if bounds, ok := world.VanillaDimensionBounds(login.WorldState.Name); ok {
 		slog.Info(

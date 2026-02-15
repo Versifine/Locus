@@ -179,6 +179,7 @@ func TestPacketIDsConsistency(t *testing.T) {
 		checkID(t, m, "position_look", C2SPlayerPositionLook)
 		checkID(t, m, "look", C2SPlayerRotation)
 		checkID(t, m, "block_dig", C2SBlockDig)
+		checkID(t, m, "entity_action", C2SEntityAction)
 	})
 }
 

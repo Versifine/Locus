@@ -44,7 +44,7 @@ func TestPhysicsTick_FreeFallOneTick(t *testing.T) {
 
 	PhysicsTick(state, InputState{}, store)
 
-	approxEqual(t, state.Position.Y, 9.92, 1e-9, "position.y")
+	approxEqual(t, state.Position.Y, 10.0, 1e-9, "position.y")
 	approxEqual(t, state.Velocity.Y, -0.0784, 1e-9, "velocity.y")
 	if state.OnGround {
 		t.Fatalf("onGround = true, want false")
@@ -114,5 +114,24 @@ func TestPhysicsTick_CannotStepUpOneBlockWithoutJump(t *testing.T) {
 	approxEqual(t, state.Position.Y, 0.0, 1e-9, "position.y")
 	if state.Position.X > 0.7+1e-9 {
 		t.Fatalf("position.x = %.6f, should be blocked by 1-block step", state.Position.X)
+	}
+}
+
+func TestPhysicsTick_EntityPushMovesPlayerSideways(t *testing.T) {
+	store := newMockBlockStore()
+	addFloor(store, -2, 2, -2, 2, -1)
+
+	state := &PhysicsState{
+		Position: Vec3{X: 0.50, Y: 0.0, Z: 0.50},
+		OnGround: true,
+	}
+
+	entities := []EntityCollider{
+		{X: 0.62, Y: 0.0, Z: 0.50, Width: 0.6, Height: 1.8},
+	}
+	PhysicsTickWithEntities(state, InputState{}, store, entities)
+
+	if state.Position.X >= 0.50 {
+		t.Fatalf("position.x = %.6f, want < 0.50 due to push", state.Position.X)
 	}
 }

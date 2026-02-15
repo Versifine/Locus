@@ -70,5 +70,6 @@ const (
 	C2SPlayerPositionLook    = 0x1e
 	C2SPlayerRotation        = 0x1f
 	C2SBlockDig              = 0x28
+	C2SEntityAction          = 0x29
 	C2SPlayerLoaded          = 0x2b
 )

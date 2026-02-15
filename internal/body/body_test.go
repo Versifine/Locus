@@ -10,12 +10,18 @@ import (
 )
 
 type mockPacketSender struct {
-	packets []*protocol.Packet
+	packets   []*protocol.Packet
+	entityID  int32
+	hasEntity bool
 }
 
 func (m *mockPacketSender) SendPacket(packet *protocol.Packet) error {
 	m.packets = append(m.packets, packet)
 	return nil
+}
+
+func (m *mockPacketSender) SelfEntityID() (int32, bool) {
+	return m.entityID, m.hasEntity
 }
 
 type mockStateUpdater struct {
@@ -133,11 +139,14 @@ func TestBodyTickAirborneFallsAndClearsOnGround(t *testing.T) {
 	if err := b.Tick(InputState{}); err != nil {
 		t.Fatalf("Tick failed: %v", err)
 	}
-
-	if len(sender.packets) != 1 {
-		t.Fatalf("sent packets = %d, want 1", len(sender.packets))
+	if err := b.Tick(InputState{}); err != nil {
+		t.Fatalf("second Tick failed: %v", err)
 	}
-	_, y, _, _, _, flags := parsePositionLookPayload(t, sender.packets[0])
+
+	if len(sender.packets) != 2 {
+		t.Fatalf("sent packets = %d, want 2", len(sender.packets))
+	}
+	_, y, _, _, _, flags := parsePositionLookPayload(t, sender.packets[1])
 	if y >= 10 {
 		t.Fatalf("y = %.6f, want < 10", y)
 	}
@@ -179,5 +188,99 @@ func TestBodyTickWallCollisionKeepsPosition(t *testing.T) {
 	state := b.PhysicsState()
 	if state.Position != (physics.Vec3{X: 0.7, Y: 0.0, Z: 0.5}) {
 		t.Fatalf("physics state moved through wall: %+v", state.Position)
+	}
+}
+
+func TestBodyTickSprintAndSneakTransitionsSendEntityAction(t *testing.T) {
+	store := newMockBlockStore()
+	addFloor(store, -4, 4, -4, 4, -1)
+	sender := &mockPacketSender{entityID: 7, hasEntity: true}
+	updater := &mockStateUpdater{}
+
+	b := New(world.Position{X: 0.5, Y: 0.0, Z: 0.5}, true, sender, store, updater)
+
+	if err := b.Tick(InputState{Yaw: 0, Pitch: 0}); err != nil {
+		t.Fatalf("first Tick failed: %v", err)
+	}
+	if err := b.Tick(InputState{Forward: true, Sprint: true, Yaw: 0, Pitch: 0}); err != nil {
+		t.Fatalf("second Tick failed: %v", err)
+	}
+	if err := b.Tick(InputState{Sprint: true, Yaw: 0, Pitch: 0}); err != nil {
+		t.Fatalf("third Tick failed: %v", err)
+	}
+
+	var actionIDs []int32
+	for _, packet := range sender.packets {
+		if packet.ID != protocol.C2SEntityAction {
+			continue
+		}
+		r := bytes.NewReader(packet.Payload)
+		gotEntityID, err := protocol.ReadVarint(r)
+		if err != nil {
+			t.Fatalf("ReadVarint(entityID) failed: %v", err)
+		}
+		gotActionID, err := protocol.ReadVarint(r)
+		if err != nil {
+			t.Fatalf("ReadVarint(actionID) failed: %v", err)
+		}
+		if gotEntityID != 7 {
+			t.Fatalf("entityID = %d, want 7", gotEntityID)
+		}
+		actionIDs = append(actionIDs, gotActionID)
+	}
+
+	if len(actionIDs) != 2 {
+		t.Fatalf("entity action packet count = %d, want 2", len(actionIDs))
+	}
+	if actionIDs[0] != protocol.EntityActionStartSprinting {
+		t.Fatalf("first actionID = %d, want %d", actionIDs[0], protocol.EntityActionStartSprinting)
+	}
+	if actionIDs[1] != protocol.EntityActionStopSprinting {
+		t.Fatalf("second actionID = %d, want %d", actionIDs[1], protocol.EntityActionStopSprinting)
+	}
+}
+
+func TestBodyTickSneakCancelsSprint(t *testing.T) {
+	store := newMockBlockStore()
+	addFloor(store, -4, 4, -4, 4, -1)
+	sender := &mockPacketSender{entityID: 7, hasEntity: true}
+	updater := &mockStateUpdater{}
+
+	b := New(world.Position{X: 0.5, Y: 0.0, Z: 0.5}, true, sender, store, updater)
+	if err := b.Tick(InputState{Yaw: 0, Pitch: 0}); err != nil {
+		t.Fatalf("first Tick failed: %v", err)
+	}
+	if err := b.Tick(InputState{Forward: true, Sprint: true, Yaw: 0, Pitch: 0}); err != nil {
+		t.Fatalf("second Tick failed: %v", err)
+	}
+	if err := b.Tick(InputState{Forward: true, Sprint: true, Sneak: true, Yaw: 0, Pitch: 0}); err != nil {
+		t.Fatalf("third Tick failed: %v", err)
+	}
+
+	var actionIDs []int32
+	for _, packet := range sender.packets {
+		if packet.ID != protocol.C2SEntityAction {
+			continue
+		}
+		r := bytes.NewReader(packet.Payload)
+		_, _ = protocol.ReadVarint(r)
+		actionID, err := protocol.ReadVarint(r)
+		if err != nil {
+			t.Fatalf("ReadVarint(actionID) failed: %v", err)
+		}
+		actionIDs = append(actionIDs, actionID)
+	}
+
+	if len(actionIDs) != 3 {
+		t.Fatalf("entity action packet count = %d, want 3", len(actionIDs))
+	}
+	if actionIDs[0] != protocol.EntityActionStartSprinting {
+		t.Fatalf("first actionID = %d, want %d", actionIDs[0], protocol.EntityActionStartSprinting)
+	}
+	if actionIDs[1] != protocol.EntityActionStartSneaking {
+		t.Fatalf("second actionID = %d, want %d", actionIDs[1], protocol.EntityActionStartSneaking)
+	}
+	if actionIDs[2] != protocol.EntityActionStopSprinting {
+		t.Fatalf("third actionID = %d, want %d", actionIDs[2], protocol.EntityActionStopSprinting)
 	}
 }

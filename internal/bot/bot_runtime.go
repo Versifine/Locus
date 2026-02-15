@@ -51,8 +51,71 @@ func (b *Bot) SendPacket(packet *protocol.Packet) error {
 	return b.writePacket(b.conn, packet, b.connState.GetThreshold())
 }
 
+func (b *Bot) SetLocalPositionSink(sink interface{ SetLocalPosition(pos world.Position) }) {
+	b.localPosSinkMu.Lock()
+	defer b.localPosSinkMu.Unlock()
+	b.localPosSink = sink
+}
+
+func (b *Bot) setSelfEntityID(entityID int32) {
+	b.selfEntityMu.Lock()
+	b.selfEntityID = entityID
+	b.hasSelfEntity = true
+	b.selfEntityMu.Unlock()
+}
+
+func (b *Bot) SelfEntityID() (int32, bool) {
+	b.selfEntityMu.RLock()
+	defer b.selfEntityMu.RUnlock()
+	return b.selfEntityID, b.hasSelfEntity
+}
+
+func (b *Bot) WaitForInitialPosition(ctx context.Context) error {
+	if b.initialPosCh == nil {
+		return fmt.Errorf("initial position channel is not initialized")
+	}
+	select {
+	case <-b.initialPosCh:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (b *Bot) markInitialPositionReady() {
+	if b.initialPosCh == nil {
+		return
+	}
+	b.initialPosOnce.Do(func() {
+		close(b.initialPosCh)
+	})
+}
+
+func (b *Bot) syncLocalPosition(pos world.Position) {
+	b.localPosSinkMu.RLock()
+	sink := b.localPosSink
+	b.localPosSinkMu.RUnlock()
+	if sink != nil {
+		sink.SetLocalPosition(pos)
+	}
+}
+
 func (b *Bot) GetState() world.Snapshot {
 	return b.worldState.GetState()
+}
+
+func (b *Bot) UpdatePosition(pos world.Position) {
+	if b.worldState == nil {
+		return
+	}
+	b.worldState.UpdatePosition(pos)
+}
+
+func (b *Bot) IsSolid(x, y, z int) bool {
+	if b.blockStore == nil {
+		return false
+	}
+	return b.blockStore.IsSolid(x, y, z)
 }
 
 func (b *Bot) GetBlockState(x, y, z int) (int32, bool) {
