@@ -11,6 +11,7 @@ type Config struct {
 	Backend BackendConfig `yaml:"backend"`
 	Logging LoggingConfig `yaml:"logging"`
 	LLM     LLMConfig     `yaml:"llm"`
+	Debug   bool          `yaml:"debug"`
 	Mode    string        `yaml:"mode"`
 	Bot     BotConfig     `yaml:"bot"`
 }

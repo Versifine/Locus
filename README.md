@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat-square&logo=go" alt="Go 1.21+">
   <img src="https://img.shields.io/badge/MC-Java%201.21.11-62B47A?style=flat-square" alt="MC Java 1.21.11">
   <img src="https://img.shields.io/badge/LLM-DeepSeek-purple?style=flat-square" alt="LLM">
-  <img src="https://img.shields.io/badge/Status-v0.4-blue?style=flat-square" alt="Status">
+  <img src="https://img.shields.io/badge/Status-v0.6b-blue?style=flat-square" alt="Status">
 </p>
 
 ---
@@ -36,7 +36,7 @@ Locus 是一个 **Headless Minecraft Bot**——它自己作为一个独立玩�
                     └─────────────┘
 ```
 
-## 当前能力 (v0.4)
+## 当前能力 (v0.6b)
 
 - **Headless Bot** — Locus 作为独立客户端直连 MC 服务器，完整 Login → Configuration → Play 流程
 - **保活机制** — Keep-Alive 应答 + 位置同步确认，Bot 稳定在线
@@ -162,7 +162,7 @@ Bot 会自动登录配置的 MC 服务器，在游戏内和其他玩家聊天。
 | v0.3 | 聊天拦截 + LLM 集成 | ✅ 完成 |
 | v0.4 | Headless Bot + 保活 + 对话记忆 | ✅ 完成 |
 | **v0.5** | **世界感知 + 视野系统** | **下一步** |
-| v0.6 | 原子动作 + 状态反馈 | 规划中 |
+| v0.6 | Physics + Body + Debug Console | ✅ 完成（v0.6b） |
 | v0.7+ | 技能框架 + 认知架构 | 研究中 |
 
 ---
@@ -191,6 +191,22 @@ locus/
 - **协议**: Minecraft Java Edition 1.21.11 (Protocol 774)
 - **LLM**: DeepSeek（OpenAI 兼容格式，可切换）
 - **参考**: [minecraft.wiki](https://minecraft.wiki/w/Java_Edition_protocol) / [minecraft-data](https://github.com/PrismarineJS/minecraft-data)
+
+---
+
+## 最新进展（2026-02-15）
+
+- `v0.6b` 已完成：`Physics + Body + Debug Console`。
+- Debug Console 当前键位：
+  - `W/A/S/D`：短脉冲移动（模拟短按）
+  - `[`：切换潜行
+  - `]`：切换疾跑
+  - `Space`：切换跳跃
+  - `:`：进入命令模式（`:look`, `:block`, `:tp`, `:state`, `:snap`）
+- 物理与状态同步补充：
+  - 非 debug 模式也会持续运行 Body 物理 tick
+  - 疾跑通过 `entity_action`（start/stop sprint）同步
+  - 潜行通过 `player_input` 的 `shift` bit 同步
 
 ---
 

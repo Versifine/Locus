@@ -32,6 +32,8 @@ type Bot struct {
 	chunkBatchState
 	playerLoadedState
 	digSyncState
+	selfEntityState
+	positionSyncState
 }
 
 type connectionState struct {
@@ -48,6 +50,18 @@ type runtimeState struct {
 	worldState *world.WorldState
 	blockStore *world.BlockStore
 	injectCh   chan string
+}
+
+type localPositionSink interface {
+	SetLocalPosition(pos world.Position)
+}
+
+type positionSyncState struct {
+	localPosSinkMu sync.RWMutex
+	localPosSink   localPositionSink
+
+	initialPosOnce sync.Once
+	initialPosCh   chan struct{}
 }
 
 type chunkCaptureState struct {
@@ -96,6 +110,12 @@ type digSyncState struct {
 	pendingDigRequests map[int32]pendingDigRequest
 }
 
+type selfEntityState struct {
+	selfEntityMu  sync.RWMutex
+	selfEntityID  int32
+	hasSelfEntity bool
+}
+
 type footBlockSnapshot struct {
 	X       int
 	Y       int
@@ -141,6 +161,9 @@ func NewBot(serverAddr, username string) *Bot {
 		chunkCaptureState: chunkCaptureState{
 			chunkCaptureDir: defaultChunkCaptureDir,
 			chunkCaptureMax: defaultChunkCaptureMax,
+		},
+		positionSyncState: positionSyncState{
+			initialPosCh: make(chan struct{}),
 		},
 	}
 }
@@ -330,13 +353,16 @@ func (b *Bot) handlePlayState(ctx context.Context) error {
 				return err
 			}
 			teleCfmPacket := protocol.CreateTeleportConfirmPacket(playerPos.TeleportID)
-			b.worldState.UpdatePosition(world.Position{
+			newPos := world.Position{
 				X:     playerPos.X,
 				Y:     playerPos.Y,
 				Z:     playerPos.Z,
 				Yaw:   playerPos.Yaw,
 				Pitch: playerPos.Pitch,
-			})
+			}
+			b.worldState.UpdatePosition(newPos)
+			b.markInitialPositionReady()
+			b.syncLocalPosition(newPos)
 			b.logBlockUnderFeetState()
 			if err := b.writePacket(b.conn, teleCfmPacket, b.connState.GetThreshold()); err != nil {
 				return err
@@ -349,7 +375,6 @@ func (b *Bot) handlePlayState(ctx context.Context) error {
 				playerPos.Z,
 				playerPos.Yaw,
 				playerPos.Pitch,
-				false,
 				false,
 			)
 			if err := b.writePacket(b.conn, posAck, b.connState.GetThreshold()); err != nil {
