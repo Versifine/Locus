@@ -20,7 +20,7 @@ import (
 
 const (
 	defaultTickInterval = 50 * time.Millisecond
-	defaultMovePulse    = 180 * time.Millisecond
+	defaultMovePulse    = 50 * time.Millisecond
 	yawStep             = float32(5.0)
 	pitchStep           = float32(5.0)
 )
@@ -152,7 +152,7 @@ func (c *Console) handleKey(reader *bufio.Reader, b byte) {
 	case 'd', 'D':
 		c.pulseRight()
 	case ' ':
-		c.toggle(func(in *body.InputState) { in.Jump = !in.Jump })
+		c.pulseJump()
 	case '[':
 		c.toggleSneak()
 	case ']':
@@ -516,6 +516,20 @@ func (c *Console) pulseRight() {
 	c.rightUntil = now.Add(c.movePulse)
 	c.currentInput.Left = false
 	c.leftUntil = time.Time{}
+}
+func (c *Console) pulseJump() {
+	//跳一次
+	c.mu.Lock()
+	c.currentInput.Jump = true
+	c.mu.Unlock()
+
+	//100ms后取消跳跃输入
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		c.mu.Lock()
+		c.currentInput.Jump = false
+		c.mu.Unlock()
+	}()
 }
 
 func (c *Console) applyMovementPulseLocked(now time.Time) {

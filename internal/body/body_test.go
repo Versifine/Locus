@@ -86,6 +86,15 @@ func parsePositionLookPayload(t *testing.T, packet *protocol.Packet) (float64, f
 	return x, y, z, yaw, pitch, flags
 }
 
+func lastPacketByID(packets []*protocol.Packet, id int32) *protocol.Packet {
+	for i := len(packets) - 1; i >= 0; i-- {
+		if packets[i].ID == id {
+			return packets[i]
+		}
+	}
+	return nil
+}
+
 func TestBodyTickStandingForwardMovesAndSendsPacket(t *testing.T) {
 	store := newMockBlockStore()
 	addFloor(store, -4, 4, -4, 4, -1)
@@ -97,12 +106,12 @@ func TestBodyTickStandingForwardMovesAndSendsPacket(t *testing.T) {
 		t.Fatalf("Tick failed: %v", err)
 	}
 
-	if len(sender.packets) != 1 {
-		t.Fatalf("sent packets = %d, want 1", len(sender.packets))
+	if len(sender.packets) != 2 {
+		t.Fatalf("sent packets = %d, want 2", len(sender.packets))
 	}
-	packet := sender.packets[0]
-	if packet.ID != protocol.C2SPlayerPositionLook {
-		t.Fatalf("packet.ID = %d, want %d", packet.ID, protocol.C2SPlayerPositionLook)
+	packet := lastPacketByID(sender.packets, protocol.C2SPlayerPositionLook)
+	if packet == nil {
+		t.Fatalf("missing packet ID %d", protocol.C2SPlayerPositionLook)
 	}
 
 	x, y, z, yaw, pitch, flags := parsePositionLookPayload(t, packet)
@@ -143,10 +152,14 @@ func TestBodyTickAirborneFallsAndClearsOnGround(t *testing.T) {
 		t.Fatalf("second Tick failed: %v", err)
 	}
 
-	if len(sender.packets) != 2 {
-		t.Fatalf("sent packets = %d, want 2", len(sender.packets))
+	if len(sender.packets) != 4 {
+		t.Fatalf("sent packets = %d, want 4", len(sender.packets))
 	}
-	_, y, _, _, _, flags := parsePositionLookPayload(t, sender.packets[1])
+	posPacket := lastPacketByID(sender.packets, protocol.C2SPlayerPositionLook)
+	if posPacket == nil {
+		t.Fatalf("missing packet ID %d", protocol.C2SPlayerPositionLook)
+	}
+	_, y, _, _, _, flags := parsePositionLookPayload(t, posPacket)
 	if y >= 10 {
 		t.Fatalf("y = %.6f, want < 10", y)
 	}
@@ -173,14 +186,18 @@ func TestBodyTickWallCollisionKeepsPosition(t *testing.T) {
 	updater := &mockStateUpdater{}
 
 	b := New(world.Position{X: 0.7, Y: 0.0, Z: 0.5, Yaw: 0, Pitch: 0}, true, sender, store, updater)
-	if err := b.Tick(InputState{Right: true, Yaw: 0, Pitch: 0}); err != nil {
+	if err := b.Tick(InputState{Left: true, Yaw: 0, Pitch: 0}); err != nil {
 		t.Fatalf("Tick failed: %v", err)
 	}
 
-	if len(sender.packets) != 1 {
-		t.Fatalf("sent packets = %d, want 1", len(sender.packets))
+	if len(sender.packets) != 2 {
+		t.Fatalf("sent packets = %d, want 2", len(sender.packets))
 	}
-	x, y, z, _, _, _ := parsePositionLookPayload(t, sender.packets[0])
+	posPacket := lastPacketByID(sender.packets, protocol.C2SPlayerPositionLook)
+	if posPacket == nil {
+		t.Fatalf("missing packet ID %d", protocol.C2SPlayerPositionLook)
+	}
+	x, y, z, _, _, _ := parsePositionLookPayload(t, posPacket)
 	if x != 0.7 || y != 0.0 || z != 0.5 {
 		t.Fatalf("position moved through wall: x=%.6f y=%.6f z=%.6f", x, y, z)
 	}
@@ -271,16 +288,39 @@ func TestBodyTickSneakCancelsSprint(t *testing.T) {
 		actionIDs = append(actionIDs, actionID)
 	}
 
-	if len(actionIDs) != 3 {
-		t.Fatalf("entity action packet count = %d, want 3", len(actionIDs))
+	if len(actionIDs) != 2 {
+		t.Fatalf("entity action packet count = %d, want 2", len(actionIDs))
 	}
 	if actionIDs[0] != protocol.EntityActionStartSprinting {
 		t.Fatalf("first actionID = %d, want %d", actionIDs[0], protocol.EntityActionStartSprinting)
 	}
-	if actionIDs[1] != protocol.EntityActionStartSneaking {
-		t.Fatalf("second actionID = %d, want %d", actionIDs[1], protocol.EntityActionStartSneaking)
+	if actionIDs[1] != protocol.EntityActionStopSprinting {
+		t.Fatalf("second actionID = %d, want %d", actionIDs[1], protocol.EntityActionStopSprinting)
 	}
-	if actionIDs[2] != protocol.EntityActionStopSprinting {
-		t.Fatalf("third actionID = %d, want %d", actionIDs[2], protocol.EntityActionStopSprinting)
+}
+
+func TestBodyTickSendsSneakViaPlayerInput(t *testing.T) {
+	store := newMockBlockStore()
+	addFloor(store, -4, 4, -4, 4, -1)
+	sender := &mockPacketSender{entityID: 7, hasEntity: true}
+	updater := &mockStateUpdater{}
+
+	b := New(world.Position{X: 0.5, Y: 0.0, Z: 0.5}, true, sender, store, updater)
+	if err := b.Tick(InputState{Sneak: true, Yaw: 0, Pitch: 0}); err != nil {
+		t.Fatalf("Tick failed: %v", err)
+	}
+
+	packet := lastPacketByID(sender.packets, protocol.C2SPlayerInput)
+	if packet == nil {
+		t.Fatalf("missing packet ID %d", protocol.C2SPlayerInput)
+	}
+
+	r := bytes.NewReader(packet.Payload)
+	flags, err := protocol.ReadByte(r)
+	if err != nil {
+		t.Fatalf("ReadByte(flags) failed: %v", err)
+	}
+	if flags&(1<<5) == 0 {
+		t.Fatalf("player_input flags = 0x%02x, expected shift bit set", flags)
 	}
 }

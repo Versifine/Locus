@@ -62,7 +62,7 @@ func TestPhysicsTick_CollisionAgainstWallStopsHorizontalMovement(t *testing.T) {
 		OnGround: true,
 	}
 
-	PhysicsTick(state, InputState{Right: true, Yaw: 0}, store)
+	PhysicsTick(state, InputState{Left: true, Yaw: 0}, store)
 
 	approxEqual(t, state.Position.X, 0.7, 1e-9, "position.x")
 	approxEqual(t, state.Position.Y, 0.0, 1e-9, "position.y")
@@ -108,7 +108,7 @@ func TestPhysicsTick_CannotStepUpOneBlockWithoutJump(t *testing.T) {
 	}
 
 	for i := 0; i < 20; i++ {
-		PhysicsTick(state, InputState{Right: true, Yaw: 0}, store)
+		PhysicsTick(state, InputState{Left: true, Yaw: 0}, store)
 	}
 
 	approxEqual(t, state.Position.Y, 0.0, 1e-9, "position.y")
@@ -133,5 +133,23 @@ func TestPhysicsTick_EntityPushMovesPlayerSideways(t *testing.T) {
 
 	if state.Position.X >= 0.50 {
 		t.Fatalf("position.x = %.6f, want < 0.50 due to push", state.Position.X)
+	}
+}
+
+func TestPhysicsTick_StrafeDirectionAtYawZero(t *testing.T) {
+	store := newMockBlockStore()
+	addFloor(store, -4, 4, -4, 4, -1)
+
+	right := &PhysicsState{Position: Vec3{X: 0.5, Y: 0.0, Z: 0.5}, OnGround: true}
+	left := &PhysicsState{Position: Vec3{X: 0.5, Y: 0.0, Z: 0.5}, OnGround: true}
+
+	PhysicsTick(right, InputState{Right: true, Yaw: 0}, store)
+	PhysicsTick(left, InputState{Left: true, Yaw: 0}, store)
+
+	if right.Position.X >= 0.5 {
+		t.Fatalf("right strafe x = %.6f, want < 0.5", right.Position.X)
+	}
+	if left.Position.X <= 0.5 {
+		t.Fatalf("left strafe x = %.6f, want > 0.5", left.Position.X)
 	}
 }

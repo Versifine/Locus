@@ -3,10 +3,13 @@ package protocol
 import "bytes"
 
 const (
-	EntityActionStartSneaking  = 0
-	EntityActionStopSneaking   = 1
-	EntityActionStartSprinting = 3
-	EntityActionStopSprinting  = 4
+	EntityActionLeaveBed       = 0
+	EntityActionStartSprinting = 1
+	EntityActionStopSprinting  = 2
+	EntityActionStartHorseJump = 3
+	EntityActionStopHorseJump  = 4
+	EntityActionOpenVehicleInv = 5
+	EntityActionStartElytraFly = 6
 )
 
 func CreateEntityActionPacket(entityID, actionID, jumpBoost int32) *Packet {

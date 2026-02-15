@@ -29,8 +29,7 @@ type Body struct {
 	blockStore   physics.BlockStore
 	stateUpdater StateUpdater
 	entitySource EntitySnapshotProvider
-	lastInput    InputState
-	hasLastInput bool
+	serverSprint bool
 }
 
 func New(
@@ -67,21 +66,22 @@ func (b *Body) Tick(input InputState) error {
 	entityColliders := b.currentEntityColliders()
 
 	b.mu.Lock()
-	startSneak := b.hasLastInput && !b.lastInput.Sneak && effectiveInput.Sneak
-	stopSneak := b.hasLastInput && b.lastInput.Sneak && !effectiveInput.Sneak
-	startSprint := b.hasLastInput && !b.lastInput.Sprint && effectiveInput.Sprint
-	stopSprint := b.hasLastInput && b.lastInput.Sprint && !effectiveInput.Sprint
-	b.lastInput = effectiveInput
-	b.hasLastInput = true
-
 	physics.PhysicsTickWithEntities(&b.physics, physics.InputState(effectiveInput), b.blockStore, entityColliders)
 	pos := b.physics.Position
 	onGround := b.physics.OnGround
+	currentServerSprint := b.serverSprint
 	b.mu.Unlock()
 
-	if err := b.sendEntityActions(startSneak, stopSneak, startSprint, stopSprint); err != nil {
+	newServerSprint, err := b.syncServerSprintAction(
+		currentServerSprint,
+		effectiveInput.Sprint,
+	)
+	if err != nil {
 		return err
 	}
+	b.mu.Lock()
+	b.serverSprint = newServerSprint
+	b.mu.Unlock()
 
 	packet := protocol.CreatePlayerPositionAndRotationPacket(
 		pos.X,
@@ -92,6 +92,18 @@ func (b *Body) Tick(input InputState) error {
 		onGround,
 	)
 	if err := b.packetSender.SendPacket(packet); err != nil {
+		return err
+	}
+	playerInput := protocol.CreatePlayerInputPacket(
+		effectiveInput.Forward,
+		effectiveInput.Backward,
+		effectiveInput.Left,
+		effectiveInput.Right,
+		effectiveInput.Jump,
+		effectiveInput.Sneak,
+		effectiveInput.Sprint,
+	)
+	if err := b.packetSender.SendPacket(playerInput); err != nil {
 		return err
 	}
 
@@ -169,21 +181,21 @@ func (b *Body) currentEntityColliders() []physics.EntityCollider {
 	return colliders
 }
 
-func (b *Body) sendEntityActions(startSneak, stopSneak, startSprint, stopSprint bool) error {
+func (b *Body) syncServerSprintAction(
+	currentSprint bool,
+	desiredSprint bool,
+) (bool, error) {
 	if b == nil {
-		return nil
-	}
-	if !startSneak && !stopSneak && !startSprint && !stopSprint {
-		return nil
+		return currentSprint, nil
 	}
 
 	idProvider, ok := b.packetSender.(interface{ SelfEntityID() (int32, bool) })
 	if !ok {
-		return nil
+		return currentSprint, nil
 	}
 	entityID, ok := idProvider.SelfEntityID()
 	if !ok {
-		return nil
+		return currentSprint, nil
 	}
 
 	send := func(action int32) error {
@@ -195,28 +207,20 @@ func (b *Body) sendEntityActions(startSneak, stopSneak, startSprint, stopSprint 
 		return nil
 	}
 
-	if startSneak {
-		if err := send(protocol.EntityActionStartSneaking); err != nil {
-			return err
+	if desiredSprint != currentSprint {
+		if desiredSprint {
+			if err := send(protocol.EntityActionStartSprinting); err != nil {
+				return currentSprint, err
+			}
+		} else {
+			if err := send(protocol.EntityActionStopSprinting); err != nil {
+				return currentSprint, err
+			}
 		}
-	}
-	if stopSneak {
-		if err := send(protocol.EntityActionStopSneaking); err != nil {
-			return err
-		}
-	}
-	if startSprint {
-		if err := send(protocol.EntityActionStartSprinting); err != nil {
-			return err
-		}
-	}
-	if stopSprint {
-		if err := send(protocol.EntityActionStopSprinting); err != nil {
-			return err
-		}
+		currentSprint = desiredSprint
 	}
 
-	return nil
+	return currentSprint, nil
 }
 
 func normalizeMovementInput(input InputState) InputState {

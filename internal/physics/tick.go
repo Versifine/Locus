@@ -89,10 +89,10 @@ func desiredMoveVector(input InputState) (float64, float64) {
 
 	var strafe float64
 	if input.Right {
-		strafe += 1
+		strafe -= 1
 	}
 	if input.Left {
-		strafe -= 1
+		strafe += 1
 	}
 
 	length := math.Sqrt(forward*forward + strafe*strafe)
