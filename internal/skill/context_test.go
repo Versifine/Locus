@@ -14,7 +14,7 @@ func TestStepPushesInputAndReceivesSnapshot(t *testing.T) {
 
 	tickCh := make(chan world.Snapshot, 1)
 	outCh := make(chan PartialInput, 1)
-	bctx := BehaviorCtx{ctx: ctx, cancel: cancel, tick: tickCh, output: outCh}
+	bctx := BehaviorCtx{Ctx: ctx, CancelFunc: cancel, Tick: tickCh, Output: outCh}
 
 	forward := true
 	wantInput := PartialInput{Forward: &forward}
@@ -57,7 +57,7 @@ func TestStepReturnsFalseOnCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	tickCh := make(chan world.Snapshot)
 	outCh := make(chan PartialInput, 1)
-	bctx := BehaviorCtx{ctx: ctx, cancel: cancel, tick: tickCh, output: outCh}
+	bctx := BehaviorCtx{Ctx: ctx, CancelFunc: cancel, Tick: tickCh, Output: outCh}
 
 	forward := true
 	done := make(chan bool, 1)

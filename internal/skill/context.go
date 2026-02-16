@@ -7,61 +7,65 @@ import (
 )
 
 type BehaviorCtx struct {
-	ctx      context.Context
-	cancel   context.CancelFunc
-	tick     <-chan world.Snapshot
-	output   chan<- PartialInput
-	send     func(string) error
-	snapshot func() world.Snapshot
+	Ctx        context.Context
+	CancelFunc context.CancelFunc
+	Tick       <-chan world.Snapshot
+	Output     chan<- PartialInput
+	SendFunc   func(string) error
+	SnapshotFn func() world.Snapshot
 }
 
 func (b BehaviorCtx) Send(message string) error {
-	if b.send == nil {
+	if b.SendFunc == nil {
 		return nil
 	}
-	return b.send(message)
+	return b.SendFunc(message)
 }
 
 func (b BehaviorCtx) Snapshot() world.Snapshot {
-	if b.snapshot == nil {
+	if b.SnapshotFn == nil {
 		return world.Snapshot{}
 	}
-	return b.snapshot()
+	return b.SnapshotFn()
 }
 
 func (b BehaviorCtx) Done() <-chan struct{} {
-	if b.ctx == nil {
+	if b.Ctx == nil {
 		ch := make(chan struct{})
 		close(ch)
 		return ch
 	}
-	return b.ctx.Done()
+	return b.Ctx.Done()
 }
 
 func (b BehaviorCtx) Cancel() {
-	if b.cancel != nil {
-		b.cancel()
+	if b.CancelFunc != nil {
+		b.CancelFunc()
 	}
 }
 
-func step(bctx BehaviorCtx, input PartialInput) (world.Snapshot, bool) {
-	if bctx.ctx == nil {
+func Step(bctx BehaviorCtx, input PartialInput) (world.Snapshot, bool) {
+	if bctx.Ctx == nil {
 		return world.Snapshot{}, false
 	}
 
 	select {
-	case <-bctx.ctx.Done():
+	case <-bctx.Ctx.Done():
 		return world.Snapshot{}, false
-	case bctx.output <- input:
+	case bctx.Output <- input:
 	}
 
 	select {
-	case <-bctx.ctx.Done():
+	case <-bctx.Ctx.Done():
 		return world.Snapshot{}, false
-	case snap, ok := <-bctx.tick:
+	case snap, ok := <-bctx.Tick:
 		if !ok {
 			return world.Snapshot{}, false
 		}
 		return snap, true
 	}
+}
+
+func step(bctx BehaviorCtx, input PartialInput) (world.Snapshot, bool) {
+	return Step(bctx, input)
 }
