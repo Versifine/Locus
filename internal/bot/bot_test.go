@@ -587,6 +587,13 @@ func TestHandlePlayLoginAndRespawnUpdatesDimensionAndClearsChunks(t *testing.T) 
 	bot.handlePlayLogin(loginPayload)
 	viewPayload := buildUpdateViewPositionPayloadForTest(-2, 3)
 	bot.handleUpdateViewPosition(viewPayload)
+	bot.worldState.AddEntity(world.Entity{
+		EntityID: 100,
+		Type:     124,
+		X:        4,
+		Y:        65,
+		Z:        4,
+	})
 
 	snap := bot.GetState()
 	if snap.DimensionName != world.DimensionOverworld {
@@ -594,6 +601,9 @@ func TestHandlePlayLoginAndRespawnUpdatesDimensionAndClearsChunks(t *testing.T) 
 	}
 	if snap.SimulationDistance != 10 {
 		t.Fatalf("SimulationDistance after login = %d, want 10", snap.SimulationDistance)
+	}
+	if len(snap.Entities) != 1 {
+		t.Fatalf("entity count before respawn = %d, want 1", len(snap.Entities))
 	}
 	if snap.ViewCenterChunkX != -2 || snap.ViewCenterChunkZ != 3 {
 		t.Fatalf(
@@ -612,6 +622,9 @@ func TestHandlePlayLoginAndRespawnUpdatesDimensionAndClearsChunks(t *testing.T) 
 	}
 	if snap.SimulationDistance != 10 {
 		t.Fatalf("SimulationDistance after respawn = %d, want 10", snap.SimulationDistance)
+	}
+	if len(snap.Entities) != 0 {
+		t.Fatalf("entity count after respawn = %d, want 0", len(snap.Entities))
 	}
 	if bot.blockStore.LoadedChunkCount() != 0 {
 		t.Fatalf("LoadedChunkCount after respawn = %d, want 0", bot.blockStore.LoadedChunkCount())

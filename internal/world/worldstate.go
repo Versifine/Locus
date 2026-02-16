@@ -170,18 +170,40 @@ type Player struct {
 func (ws *WorldState) AddPlayer(players []Player) {
 	ws.mu.Lock()
 	defer ws.mu.Unlock()
-	ws.playerList = append(ws.playerList, players...)
+	if len(players) == 0 {
+		return
+	}
+
+	existing := make(map[string]int, len(ws.playerList))
+	for i, player := range ws.playerList {
+		existing[player.UUID] = i
+	}
+
+	for _, player := range players {
+		if idx, ok := existing[player.UUID]; ok {
+			// Keep player list unique by UUID and refresh latest name.
+			ws.playerList[idx] = player
+			continue
+		}
+		ws.playerList = append(ws.playerList, player)
+		existing[player.UUID] = len(ws.playerList) - 1
+	}
 }
 
 func (ws *WorldState) RemovePlayer(uuid string) {
 	ws.mu.Lock()
 	defer ws.mu.Unlock()
-	for i, player := range ws.playerList {
-		if player.UUID == uuid {
-			ws.playerList = append(ws.playerList[:i], ws.playerList[i+1:]...)
-			break
+	if len(ws.playerList) == 0 {
+		return
+	}
+
+	filtered := ws.playerList[:0]
+	for _, player := range ws.playerList {
+		if player.UUID != uuid {
+			filtered = append(filtered, player)
 		}
 	}
+	ws.playerList = filtered
 }
 
 func (ws *WorldState) AddEntity(e Entity) {
@@ -210,6 +232,17 @@ func (ws *WorldState) RemoveEntities(ids []int32) {
 		if ws.pendingItemNames != nil {
 			delete(ws.pendingItemNames, id)
 		}
+	}
+}
+
+func (ws *WorldState) ClearEntities() {
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+	if len(ws.entities) > 0 {
+		ws.entities = make(map[int32]*Entity)
+	}
+	if len(ws.pendingItemNames) > 0 {
+		ws.pendingItemNames = make(map[int32]string)
 	}
 }
 

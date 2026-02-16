@@ -109,6 +109,7 @@ func (b *Bot) handleRespawn(payload []byte) {
 
 	current := b.worldState.GetState()
 	b.worldState.UpdateDimensionContext(respawn.WorldState.Name, current.SimulationDistance)
+	b.worldState.ClearEntities()
 	b.resetPlayerLoaded()
 	b.resetPendingDigRequests("respawn")
 

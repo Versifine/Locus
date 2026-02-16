@@ -63,10 +63,7 @@ func (r *BehaviorRunner) Start(name string, fn BehaviorFunc, channels []Channel,
 	}
 
 	for _, conflictName := range conflicts {
-		owner := r.active[conflictName]
-		if owner != nil {
-			owner.cancel()
-		}
+		r.preemptLocked(conflictName)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -86,18 +83,18 @@ func (r *BehaviorRunner) Start(name string, fn BehaviorFunc, channels []Channel,
 	r.mu.Unlock()
 
 	bctx := BehaviorCtx{
-		ctx:      ctx,
-		cancel:   cancel,
-		tick:     h.tickCh,
-		output:   h.outputCh,
-		send:     r.send,
-		snapshot: r.snapshot,
+		Ctx:        ctx,
+		CancelFunc: cancel,
+		Tick:       h.tickCh,
+		Output:     h.outputCh,
+		SendFunc:   r.send,
+		SnapshotFn: r.snapshot,
 	}
 
-	go func() {
-		defer r.cleanup(name)
+	go func(handle *behaviorHandle) {
+		defer r.cleanup(handle)
 		_ = fn(bctx)
-	}()
+	}(h)
 
 	return true
 }
@@ -189,16 +186,19 @@ func (r *BehaviorRunner) ActiveCount() int {
 	return len(r.active)
 }
 
-func (r *BehaviorRunner) cleanup(name string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	h := r.active[name]
-	if h == nil {
+func (r *BehaviorRunner) cleanup(handle *behaviorHandle) {
+	if handle == nil {
 		return
 	}
-	delete(r.active, name)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	current := r.active[handle.name]
+	if current != handle {
+		return
+	}
+	delete(r.active, handle.name)
 	for ch, owner := range r.channelOwners {
-		if owner == name {
+		if owner == handle.name {
 			delete(r.channelOwners, ch)
 		}
 	}
@@ -217,6 +217,20 @@ func (r *BehaviorRunner) findConflictsLocked(channels []Channel) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func (r *BehaviorRunner) preemptLocked(name string) {
+	h := r.active[name]
+	if h == nil {
+		return
+	}
+	h.cancel()
+	delete(r.active, name)
+	for ch, owner := range r.channelOwners {
+		if owner == name {
+			delete(r.channelOwners, ch)
+		}
+	}
 }
 
 func pushLatestSnapshot(ch chan world.Snapshot, snap world.Snapshot) {

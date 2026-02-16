@@ -107,6 +107,81 @@ func TestBehaviorRunnerPriorityPreempt(t *testing.T) {
 	runner.CancelAll()
 }
 
+func TestBehaviorRunnerPreemptTakesEffectSameTick(t *testing.T) {
+	runner := NewBehaviorRunner(nil, nil)
+
+	lowFn := func(bctx BehaviorCtx) error {
+		forward := true
+		for {
+			_, ok := step(bctx, PartialInput{Forward: &forward})
+			if !ok {
+				return nil
+			}
+		}
+	}
+	highFn := func(bctx BehaviorCtx) error {
+		backward := true
+		for {
+			_, ok := step(bctx, PartialInput{Backward: &backward})
+			if !ok {
+				return nil
+			}
+		}
+	}
+
+	if !runner.Start("low", lowFn, []Channel{ChannelLegs}, 10) {
+		t.Fatal("start low failed")
+	}
+	_ = runner.Tick(world.Snapshot{})
+
+	if !runner.Start("high", highFn, []Channel{ChannelLegs}, 20) {
+		t.Fatal("start high failed")
+	}
+
+	eventually(t, time.Second, func() bool {
+		in := runner.Tick(world.Snapshot{})
+		return in.Backward && !in.Forward
+	})
+
+	runner.CancelAll()
+}
+
+func TestBehaviorRunnerPreemptedCleanupDoesNotRemoveNewSameName(t *testing.T) {
+	runner := NewBehaviorRunner(nil, nil)
+	oldExited := make(chan struct{}, 1)
+
+	oldFn := func(bctx BehaviorCtx) error {
+		<-bctx.Done()
+		time.Sleep(120 * time.Millisecond)
+		oldExited <- struct{}{}
+		return nil
+	}
+	holdFn := func(bctx BehaviorCtx) error {
+		<-bctx.Done()
+		return nil
+	}
+
+	if !runner.Start("idle", oldFn, []Channel{ChannelLegs}, 10) {
+		t.Fatal("start old idle failed")
+	}
+	if !runner.Start("combat", holdFn, []Channel{ChannelLegs}, 80) {
+		t.Fatal("start combat should preempt old idle")
+	}
+	if !runner.Start("idle", holdFn, []Channel{ChannelHead}, 10) {
+		t.Fatal("start new idle failed")
+	}
+
+	waitSignal(t, oldExited)
+	time.Sleep(30 * time.Millisecond)
+
+	active := runner.Active()
+	if len(active) != 2 || active[0] != "combat" || active[1] != "idle" {
+		t.Fatalf("active=%v, want [combat idle]", active)
+	}
+
+	runner.CancelAll()
+}
+
 func TestBehaviorRunnerCancelAndActive(t *testing.T) {
 	runner := NewBehaviorRunner(nil, nil)
 

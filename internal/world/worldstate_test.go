@@ -66,3 +66,55 @@ func TestUpdateDimensionContextAndViewCenter(t *testing.T) {
 		)
 	}
 }
+
+func TestAddPlayerDeduplicatesByUUIDAndRefreshesName(t *testing.T) {
+	ws := &WorldState{}
+
+	ws.AddPlayer([]Player{{Name: "Steve", UUID: "u1"}})
+	ws.AddPlayer([]Player{{Name: "Alex", UUID: "u1"}})
+
+	snapshot := ws.GetState()
+	if len(snapshot.PlayerList) != 1 {
+		t.Fatalf("len(snapshot.PlayerList) = %d, want 1", len(snapshot.PlayerList))
+	}
+	if snapshot.PlayerList[0].Name != "Alex" {
+		t.Fatalf("snapshot.PlayerList[0].Name = %q, want %q", snapshot.PlayerList[0].Name, "Alex")
+	}
+}
+
+func TestRemovePlayerRemovesAllDuplicateEntries(t *testing.T) {
+	ws := &WorldState{
+		playerList: []Player{
+			{Name: "Steve", UUID: "u1"},
+			{Name: "SteveClone", UUID: "u1"},
+			{Name: "Alex", UUID: "u2"},
+		},
+	}
+
+	ws.RemovePlayer("u1")
+
+	snapshot := ws.GetState()
+	if len(snapshot.PlayerList) != 1 {
+		t.Fatalf("len(snapshot.PlayerList) = %d, want 1", len(snapshot.PlayerList))
+	}
+	if snapshot.PlayerList[0].UUID != "u2" {
+		t.Fatalf("remaining uuid = %q, want %q", snapshot.PlayerList[0].UUID, "u2")
+	}
+}
+
+func TestClearEntitiesAlsoClearsPendingMetadata(t *testing.T) {
+	ws := &WorldState{}
+
+	ws.UpdateEntityItemName(42, "Diamond")
+	ws.AddEntity(Entity{EntityID: 1, Type: 71, X: 0, Y: 64, Z: 0, ItemName: "Egg"})
+	ws.ClearEntities()
+	ws.AddEntity(Entity{EntityID: 42, Type: 71, X: 1, Y: 64, Z: 1})
+
+	snapshot := ws.GetState()
+	if len(snapshot.Entities) != 1 {
+		t.Fatalf("len(snapshot.Entities) = %d, want 1", len(snapshot.Entities))
+	}
+	if snapshot.Entities[0].ItemName != "" {
+		t.Fatalf("snapshot.Entities[0].ItemName = %q, want empty", snapshot.Entities[0].ItemName)
+	}
+}
