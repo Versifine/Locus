@@ -14,6 +14,10 @@ type PacketSender interface {
 	SendPacket(packet *protocol.Packet) error
 }
 
+type BlockDigSender interface {
+	SendBlockDig(status int32, location protocol.BlockPos, face int8) (int32, error)
+}
+
 type StateUpdater interface {
 	UpdatePosition(pos world.Position)
 }
@@ -23,13 +27,18 @@ type EntitySnapshotProvider interface {
 }
 
 type Body struct {
-	mu           sync.Mutex
-	physics      physics.PhysicsState
-	packetSender PacketSender
-	blockStore   physics.BlockStore
-	stateUpdater StateUpdater
-	entitySource EntitySnapshotProvider
-	serverSprint bool
+	mu                sync.Mutex
+	physics           physics.PhysicsState
+	packetSender      PacketSender
+	blockStore        physics.BlockStore
+	stateUpdater      StateUpdater
+	entitySource      EntitySnapshotProvider
+	serverSprint      bool
+	nextDigSequence   int32
+	nextUseSequence   int32
+	hasActiveHotbar   bool
+	activeHotbarSlot  int8
+	activeBreakTarget *physics.BlockPos
 }
 
 func New(
@@ -104,6 +113,10 @@ func (b *Body) Tick(input InputState) error {
 		effectiveInput.Sprint,
 	)
 	if err := b.packetSender.SendPacket(playerInput); err != nil {
+		return err
+	}
+
+	if err := b.syncHandsActions(effectiveInput); err != nil {
 		return err
 	}
 
@@ -236,4 +249,174 @@ func normalizeMovementInput(input InputState) InputState {
 	}
 
 	return out
+}
+
+func (b *Body) syncHandsActions(input InputState) error {
+	if err := b.syncHotbar(input.HotbarSlot); err != nil {
+		return err
+	}
+
+	if input.Attack && input.AttackTarget != nil {
+		packet := protocol.CreateUseEntityPacket(
+			*input.AttackTarget,
+			protocol.UseEntityActionAttack,
+			nil,
+			nil,
+			nil,
+			nil,
+			input.Sneak,
+		)
+		if err := b.packetSender.SendPacket(packet); err != nil {
+			return err
+		}
+	}
+
+	if err := b.syncBreakTarget(input); err != nil {
+		return err
+	}
+
+	if !input.Use {
+		return nil
+	}
+
+	if input.PlaceTarget != nil {
+		seq := b.nextUseSeq()
+		packet := protocol.CreateBlockPlacePacket(
+			protocol.BlockPos{
+				X: int32(input.PlaceTarget.Pos.X),
+				Y: int32(input.PlaceTarget.Pos.Y),
+				Z: int32(input.PlaceTarget.Pos.Z),
+			},
+			input.PlaceTarget.Face,
+			0,
+			0.5,
+			0.5,
+			0.5,
+			false,
+			false,
+			seq,
+		)
+		if err := b.packetSender.SendPacket(packet); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	if input.InteractTarget != nil {
+		hand := int32(0)
+		packet := protocol.CreateUseEntityPacket(
+			*input.InteractTarget,
+			protocol.UseEntityActionInteract,
+			nil,
+			nil,
+			nil,
+			&hand,
+			input.Sneak,
+		)
+		if err := b.packetSender.SendPacket(packet); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	packet := protocol.CreateUseItemPacket(0, b.nextUseSeq())
+	if err := b.packetSender.SendPacket(packet); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (b *Body) syncHotbar(slot *int8) error {
+	if slot == nil {
+		return nil
+	}
+
+	b.mu.Lock()
+	same := b.hasActiveHotbar && b.activeHotbarSlot == *slot
+	if !same {
+		b.activeHotbarSlot = *slot
+		b.hasActiveHotbar = true
+	}
+	b.mu.Unlock()
+
+	if same {
+		return nil
+	}
+
+	packet := protocol.CreateHeldItemSlotPacket(int16(*slot))
+	return b.packetSender.SendPacket(packet)
+}
+
+func (b *Body) syncBreakTarget(input InputState) error {
+	wantsBreak := input.Attack && input.BreakTarget != nil
+
+	b.mu.Lock()
+	active := b.activeBreakTarget
+	b.mu.Unlock()
+
+	if !wantsBreak {
+		if active != nil {
+			status := protocol.BlockDigStatusCancelled
+			if !input.Attack {
+				status = protocol.BlockDigStatusFinished
+			}
+			if err := b.sendBlockDig(status, *active, 1); err != nil {
+				return err
+			}
+			b.mu.Lock()
+			b.activeBreakTarget = nil
+			b.mu.Unlock()
+		}
+		return nil
+	}
+
+	target := *input.BreakTarget
+	if active != nil && sameBlockPos(*active, target) {
+		return nil
+	}
+
+	if active != nil {
+		if err := b.sendBlockDig(protocol.BlockDigStatusCancelled, *active, 1); err != nil {
+			return err
+		}
+	}
+
+	if err := b.sendBlockDig(protocol.BlockDigStatusStarted, target, 1); err != nil {
+		return err
+	}
+
+	b.mu.Lock()
+	b.activeBreakTarget = &target
+	b.mu.Unlock()
+
+	return nil
+}
+
+func (b *Body) sendBlockDig(status int32, pos physics.BlockPos, face int8) error {
+	location := protocol.BlockPos{X: int32(pos.X), Y: int32(pos.Y), Z: int32(pos.Z)}
+	if sender, ok := b.packetSender.(BlockDigSender); ok {
+		_, err := sender.SendBlockDig(status, location, face)
+		return err
+	}
+
+	b.mu.Lock()
+	sequence := b.nextDigSequence
+	b.nextDigSequence++
+	b.mu.Unlock()
+
+	packet := protocol.CreateBlockDigPacket(status, location, face, sequence)
+	return b.packetSender.SendPacket(packet)
+}
+
+func (b *Body) nextUseSeq() int32 {
+	b.mu.Lock()
+	seq := b.nextUseSequence
+	b.nextUseSequence++
+	b.mu.Unlock()
+	return seq
+}
+
+func sameBlockPos(a, b physics.BlockPos) bool {
+	return a.X == b.X && a.Y == b.Y && a.Z == b.Z
 }

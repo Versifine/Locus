@@ -6,6 +6,12 @@ import (
 	"io"
 )
 
+const (
+	BlockDigStatusStarted   int32 = 0
+	BlockDigStatusCancelled int32 = 1
+	BlockDigStatusFinished  int32 = 2
+)
+
 type BlockPos struct {
 	X int32
 	Y int32
