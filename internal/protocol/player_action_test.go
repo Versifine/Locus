@@ -90,6 +90,21 @@ func TestCreateUseItemPacket(t *testing.T) {
 	}
 }
 
+func TestCreateArmAnimationPacket(t *testing.T) {
+	packet := CreateArmAnimationPacket(0)
+	if packet.ID != C2SArmAnimation {
+		t.Fatalf("packet.ID = %d, want %d", packet.ID, C2SArmAnimation)
+	}
+	r := bytes.NewReader(packet.Payload)
+	hand, err := ReadVarint(r)
+	if err != nil {
+		t.Fatalf("ReadVarint(hand) failed: %v", err)
+	}
+	if hand != 0 {
+		t.Fatalf("hand = %d, want 0", hand)
+	}
+}
+
 func TestCreateBlockPlacePacket(t *testing.T) {
 	packet := CreateBlockPlacePacket(
 		BlockPos{X: -3, Y: 64, Z: 9},

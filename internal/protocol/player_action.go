@@ -53,6 +53,12 @@ func CreateUseItemPacket(hand int32, sequence int32) *Packet {
 	return &Packet{ID: C2SUseItem, Payload: buf.Bytes()}
 }
 
+func CreateArmAnimationPacket(hand int32) *Packet {
+	buf := new(bytes.Buffer)
+	_ = WriteVarint(buf, hand)
+	return &Packet{ID: C2SArmAnimation, Payload: buf.Bytes()}
+}
+
 func CreateBlockPlacePacket(
 	pos BlockPos,
 	face int,

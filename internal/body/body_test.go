@@ -3,6 +3,7 @@ package body
 import (
 	"bytes"
 	"testing"
+	"time"
 
 	"github.com/Versifine/locus/internal/physics"
 	"github.com/Versifine/locus/internal/protocol"
@@ -521,19 +522,21 @@ func TestBodyTickUseInteractTargetSendsUseEntityInteract(t *testing.T) {
 func TestBodyTickBreakStateMachine(t *testing.T) {
 	store := newMockBlockStore()
 	addFloor(store, -4, 4, -4, 4, -1)
+	store.setSolid(0, 1, 1)
+	store.setSolid(0, 1, -1)
 	sender := &mockPacketSender{}
 	b := New(world.Position{X: 0.5, Y: 0.0, Z: 0.5}, true, sender, store, nil)
 
-	a := physics.BlockPos{X: 1, Y: 64, Z: 2}
-	bPos := physics.BlockPos{X: 2, Y: 64, Z: 2}
+	a := physics.BlockPos{X: 0, Y: 1, Z: 1}
+	bPos := physics.BlockPos{X: 0, Y: 1, Z: -1}
 
-	if err := b.Tick(InputState{Attack: true, BreakTarget: &a}); err != nil {
+	if err := b.Tick(InputState{Attack: true, BreakTarget: &a, Yaw: 0, Pitch: 0}); err != nil {
 		t.Fatalf("first Tick failed: %v", err)
 	}
-	if err := b.Tick(InputState{Attack: true, BreakTarget: &a}); err != nil {
+	if err := b.Tick(InputState{Attack: true, BreakTarget: &a, Yaw: 0, Pitch: 0}); err != nil {
 		t.Fatalf("second Tick failed: %v", err)
 	}
-	if err := b.Tick(InputState{Attack: true, BreakTarget: &bPos}); err != nil {
+	if err := b.Tick(InputState{Attack: true, BreakTarget: &bPos, Yaw: 180, Pitch: 0}); err != nil {
 		t.Fatalf("third Tick failed: %v", err)
 	}
 	if err := b.Tick(InputState{}); err != nil {
@@ -556,37 +559,25 @@ func TestBodyTickBreakStateMachine(t *testing.T) {
 		events = append(events, digEvent{status: status, x: x, y: y, z: z, face: face})
 	}
 
-	if len(events) != 4 {
-		t.Fatalf("block_dig count = %d, want 4", len(events))
-	}
-	if events[0].status != protocol.BlockDigStatusStarted || events[0].x != 1 || events[0].z != 2 {
-		t.Fatalf("event[0] = %+v", events[0])
-	}
-	if events[1].status != protocol.BlockDigStatusCancelled || events[1].x != 1 || events[1].z != 2 {
-		t.Fatalf("event[1] = %+v", events[1])
-	}
-	if events[2].status != protocol.BlockDigStatusStarted || events[2].x != 2 || events[2].z != 2 {
-		t.Fatalf("event[2] = %+v", events[2])
-	}
-	if events[3].status != protocol.BlockDigStatusFinished || events[3].x != 2 || events[3].z != 2 {
-		t.Fatalf("event[3] = %+v", events[3])
+	if len(events) != 0 {
+		t.Fatalf("block_dig count = %d, want 0 (no finish before hold duration)", len(events))
 	}
 }
 
 func TestBodyTickBreakSendsFinishedAfterHold(t *testing.T) {
 	store := newMockBlockStore()
 	addFloor(store, -4, 4, -4, 4, -1)
+	store.setSolid(0, 1, 1)
 	sender := &mockPacketSender{}
 	b := New(world.Position{X: 0.5, Y: 0.0, Z: 0.5}, true, sender, store, nil)
 
-	target := physics.BlockPos{X: 3, Y: 64, Z: 3}
-	for i := 0; i < 9; i++ {
-		if err := b.Tick(InputState{Attack: true, BreakTarget: &target}); err != nil {
-			t.Fatalf("tick %d failed: %v", i, err)
-		}
+	target := physics.BlockPos{X: 0, Y: 1, Z: 1}
+	if err := b.Tick(InputState{Attack: true, BreakTarget: &target, Yaw: 0, Pitch: 0}); err != nil {
+		t.Fatalf("first tick failed: %v", err)
 	}
-	if err := b.Tick(InputState{}); err != nil {
-		t.Fatalf("release tick failed: %v", err)
+	time.Sleep(850 * time.Millisecond)
+	if err := b.Tick(InputState{Attack: true, BreakTarget: &target, Yaw: 0, Pitch: 0}); err != nil {
+		t.Fatalf("second tick failed: %v", err)
 	}
 
 	var statuses []int32
@@ -606,5 +597,35 @@ func TestBodyTickBreakSendsFinishedAfterHold(t *testing.T) {
 	}
 	if statuses[1] != protocol.BlockDigStatusFinished {
 		t.Fatalf("second status = %d, want %d", statuses[1], protocol.BlockDigStatusFinished)
+	}
+}
+
+func TestBodyTickBreakCancelsWhenAimLeavesTarget(t *testing.T) {
+	store := newMockBlockStore()
+	addFloor(store, -4, 4, -4, 4, -1)
+	store.setSolid(0, 1, 1)
+
+	sender := &mockPacketSender{}
+	b := New(world.Position{X: 0.5, Y: 0.0, Z: 0.5}, true, sender, store, nil)
+
+	target := physics.BlockPos{X: 0, Y: 1, Z: 1}
+	if err := b.Tick(InputState{Attack: true, BreakTarget: &target, Yaw: 0, Pitch: 0}); err != nil {
+		t.Fatalf("first tick failed: %v", err)
+	}
+	if err := b.Tick(InputState{Attack: true, BreakTarget: &target, Yaw: 180, Pitch: 0}); err != nil {
+		t.Fatalf("second tick failed: %v", err)
+	}
+
+	var statuses []int32
+	for _, packet := range sender.packets {
+		if packet.ID != protocol.C2SBlockDig {
+			continue
+		}
+		status, _, _, _, _, _ := parseBlockDigPayload(t, packet)
+		statuses = append(statuses, status)
+	}
+
+	if len(statuses) != 0 {
+		t.Fatalf("block_dig count = %d, want 0 when aim leaves before completion", len(statuses))
 	}
 }

@@ -3,7 +3,9 @@ package body
 import (
 	"fmt"
 	"log/slog"
+	"math"
 	"sync"
+	"time"
 
 	"github.com/Versifine/locus/internal/physics"
 	"github.com/Versifine/locus/internal/protocol"
@@ -39,7 +41,19 @@ type Body struct {
 	hasActiveHotbar   bool
 	activeHotbarSlot  int8
 	activeBreakTarget *physics.BlockPos
+	activeBreakSince  time.Time
+	breakFinished     bool
+	lastAttack        bool
+	lastUse           bool
+	lastSwingAt       time.Time
 }
+
+const (
+	breakHoldDuration = 800 * time.Millisecond
+	swingInterval     = 120 * time.Millisecond
+	breakReachDist    = 5.0
+	aimRayStep        = 0.1
+)
 
 func New(
 	initial world.Position,
@@ -252,6 +266,11 @@ func normalizeMovementInput(input InputState) InputState {
 }
 
 func (b *Body) syncHandsActions(input InputState) error {
+	now := time.Now()
+	if err := b.maybeSendArmAnimation(input, now); err != nil {
+		return err
+	}
+
 	if err := b.syncHotbar(input.HotbarSlot); err != nil {
 		return err
 	}
@@ -271,7 +290,7 @@ func (b *Body) syncHandsActions(input InputState) error {
 		}
 	}
 
-	if err := b.syncBreakTarget(input); err != nil {
+	if err := b.syncBreakTarget(input, now); err != nil {
 		return err
 	}
 
@@ -327,6 +346,28 @@ func (b *Body) syncHandsActions(input InputState) error {
 	return nil
 }
 
+func (b *Body) maybeSendArmAnimation(input InputState, now time.Time) error {
+	b.mu.Lock()
+	shouldSwing := false
+	if input.Attack && (!b.lastAttack || now.Sub(b.lastSwingAt) >= swingInterval) {
+		shouldSwing = true
+	}
+	if input.Use && (!b.lastUse || now.Sub(b.lastSwingAt) >= swingInterval) {
+		shouldSwing = true
+	}
+	b.lastAttack = input.Attack
+	b.lastUse = input.Use
+	if shouldSwing {
+		b.lastSwingAt = now
+	}
+	b.mu.Unlock()
+
+	if !shouldSwing {
+		return nil
+	}
+	return b.packetSender.SendPacket(protocol.CreateArmAnimationPacket(0))
+}
+
 func (b *Body) syncHotbar(slot *int8) error {
 	if slot == nil {
 		return nil
@@ -348,46 +389,60 @@ func (b *Body) syncHotbar(slot *int8) error {
 	return b.packetSender.SendPacket(packet)
 }
 
-func (b *Body) syncBreakTarget(input InputState) error {
+func (b *Body) syncBreakTarget(input InputState, now time.Time) error {
 	wantsBreak := input.Attack && input.BreakTarget != nil
 
 	b.mu.Lock()
 	active := b.activeBreakTarget
+	activeSince := b.activeBreakSince
+	finished := b.breakFinished
 	b.mu.Unlock()
 
 	if !wantsBreak {
 		if active != nil {
-			status := protocol.BlockDigStatusCancelled
-			if !input.Attack {
-				status = protocol.BlockDigStatusFinished
-			}
-			if err := b.sendBlockDig(status, *active, 1); err != nil {
-				return err
-			}
 			b.mu.Lock()
 			b.activeBreakTarget = nil
+			b.activeBreakSince = time.Time{}
+			b.breakFinished = false
 			b.mu.Unlock()
 		}
 		return nil
 	}
 
 	target := *input.BreakTarget
-	if active != nil && sameBlockPos(*active, target) {
+	if !b.isBreakTargetValid(input, target) {
+		if active != nil {
+			b.mu.Lock()
+			b.activeBreakTarget = nil
+			b.activeBreakSince = time.Time{}
+			b.breakFinished = false
+			b.mu.Unlock()
+		}
 		return nil
 	}
 
-	if active != nil {
-		if err := b.sendBlockDig(protocol.BlockDigStatusCancelled, *active, 1); err != nil {
-			return err
+	if active != nil && sameBlockPos(*active, target) {
+		if finished {
+			return nil
 		}
-	}
-
-	if err := b.sendBlockDig(protocol.BlockDigStatusStarted, target, 1); err != nil {
-		return err
+		if now.Sub(activeSince) >= breakHoldDuration {
+			if err := b.sendBlockDig(protocol.BlockDigStatusStarted, target, 1); err != nil {
+				return err
+			}
+			if err := b.sendBlockDig(protocol.BlockDigStatusFinished, target, 1); err != nil {
+				return err
+			}
+			b.mu.Lock()
+			b.breakFinished = true
+			b.mu.Unlock()
+		}
+		return nil
 	}
 
 	b.mu.Lock()
 	b.activeBreakTarget = &target
+	b.activeBreakSince = now
+	b.breakFinished = false
 	b.mu.Unlock()
 
 	return nil
@@ -419,4 +474,73 @@ func (b *Body) nextUseSeq() int32 {
 
 func sameBlockPos(a, b physics.BlockPos) bool {
 	return a.X == b.X && a.Y == b.Y && a.Z == b.Z
+}
+
+func (b *Body) isBreakTargetValid(input InputState, target physics.BlockPos) bool {
+	if b == nil || b.blockStore == nil {
+		return false
+	}
+	if !b.blockStore.IsSolid(target.X, target.Y, target.Z) {
+		return false
+	}
+
+	b.mu.Lock()
+	pos := b.physics.Position
+	b.mu.Unlock()
+
+	eyeX := pos.X
+	eyeY := pos.Y + 1.62
+	eyeZ := pos.Z
+	centerX := float64(target.X) + 0.5
+	centerY := float64(target.Y) + 0.5
+	centerZ := float64(target.Z) + 0.5
+
+	dx := centerX - eyeX
+	dy := centerY - eyeY
+	dz := centerZ - eyeZ
+	if dx*dx+dy*dy+dz*dz > breakReachDist*breakReachDist {
+		return false
+	}
+
+	rayX, rayY, rayZ := lookDir(input.Yaw, input.Pitch)
+	hit, ok := b.firstSolidOnRay(eyeX, eyeY, eyeZ, rayX, rayY, rayZ, breakReachDist)
+	if !ok {
+		return false
+	}
+	return sameBlockPos(hit, target)
+}
+
+func (b *Body) firstSolidOnRay(ox, oy, oz, dx, dy, dz, maxDist float64) (physics.BlockPos, bool) {
+	prevX := int(math.Floor(ox))
+	prevY := int(math.Floor(oy))
+	prevZ := int(math.Floor(oz))
+
+	for dist := aimRayStep; dist <= maxDist; dist += aimRayStep {
+		x := ox + dx*dist
+		y := oy + dy*dist
+		z := oz + dz*dist
+
+		bx := int(math.Floor(x))
+		by := int(math.Floor(y))
+		bz := int(math.Floor(z))
+
+		if bx == prevX && by == prevY && bz == prevZ {
+			continue
+		}
+		if b.blockStore.IsSolid(bx, by, bz) {
+			return physics.BlockPos{X: bx, Y: by, Z: bz}, true
+		}
+		prevX, prevY, prevZ = bx, by, bz
+	}
+
+	return physics.BlockPos{}, false
+}
+
+func lookDir(yaw, pitch float32) (float64, float64, float64) {
+	yawRad := float64(yaw) * math.Pi / 180.0
+	pitchRad := float64(pitch) * math.Pi / 180.0
+	x := -math.Sin(yawRad) * math.Cos(pitchRad)
+	y := -math.Sin(pitchRad)
+	z := math.Cos(yawRad) * math.Cos(pitchRad)
+	return x, y, z
 }

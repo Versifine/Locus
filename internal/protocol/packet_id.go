@@ -76,6 +76,7 @@ const (
 	C2SPlayerInput           = 0x2a
 	C2SPlayerLoaded          = 0x2b
 	C2SHeldItemSlot          = 0x34
+	C2SArmAnimation          = 0x3c
 	C2SBlockPlace            = 0x3f
 	C2SUseItem               = 0x40
 )
