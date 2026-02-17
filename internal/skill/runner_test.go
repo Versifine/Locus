@@ -9,7 +9,7 @@ import (
 )
 
 func TestBehaviorRunnerTickMergeAndChannels(t *testing.T) {
-	runner := NewBehaviorRunner(nil, nil)
+	runner := NewBehaviorRunner(nil, nil, nil)
 
 	legsStarted := make(chan struct{}, 1)
 	handsStarted := make(chan struct{}, 1)
@@ -69,7 +69,7 @@ func TestBehaviorRunnerTickMergeAndChannels(t *testing.T) {
 }
 
 func TestBehaviorRunnerPriorityPreempt(t *testing.T) {
-	runner := NewBehaviorRunner(nil, nil)
+	runner := NewBehaviorRunner(nil, nil, nil)
 	var lowCanceled atomic.Bool
 
 	lowFn := func(bctx BehaviorCtx) error {
@@ -108,7 +108,7 @@ func TestBehaviorRunnerPriorityPreempt(t *testing.T) {
 }
 
 func TestBehaviorRunnerPreemptTakesEffectSameTick(t *testing.T) {
-	runner := NewBehaviorRunner(nil, nil)
+	runner := NewBehaviorRunner(nil, nil, nil)
 
 	lowFn := func(bctx BehaviorCtx) error {
 		forward := true
@@ -147,7 +147,7 @@ func TestBehaviorRunnerPreemptTakesEffectSameTick(t *testing.T) {
 }
 
 func TestBehaviorRunnerPreemptedCleanupDoesNotRemoveNewSameName(t *testing.T) {
-	runner := NewBehaviorRunner(nil, nil)
+	runner := NewBehaviorRunner(nil, nil, nil)
 	oldExited := make(chan struct{}, 1)
 
 	oldFn := func(bctx BehaviorCtx) error {
@@ -183,7 +183,7 @@ func TestBehaviorRunnerPreemptedCleanupDoesNotRemoveNewSameName(t *testing.T) {
 }
 
 func TestBehaviorRunnerCancelAndActive(t *testing.T) {
-	runner := NewBehaviorRunner(nil, nil)
+	runner := NewBehaviorRunner(nil, nil, nil)
 
 	noop := func(bctx BehaviorCtx) error {
 		for {

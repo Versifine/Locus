@@ -6,6 +6,12 @@ import (
 	"github.com/Versifine/locus/internal/world"
 )
 
+type BlockAccess interface {
+	GetBlockState(x, y, z int) (int32, bool)
+	GetBlockNameByStateID(stateID int32) (string, bool)
+	IsSolid(x, y, z int) bool
+}
+
 type BehaviorCtx struct {
 	Ctx        context.Context
 	CancelFunc context.CancelFunc
@@ -13,6 +19,7 @@ type BehaviorCtx struct {
 	Output     chan<- PartialInput
 	SendFunc   func(string) error
 	SnapshotFn func() world.Snapshot
+	Blocks     BlockAccess
 }
 
 func (b BehaviorCtx) Send(message string) error {

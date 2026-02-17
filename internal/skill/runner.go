@@ -4,6 +4,7 @@ import (
 	"context"
 	"sort"
 	"sync"
+	"sync/atomic"
 
 	"github.com/Versifine/locus/internal/body"
 	"github.com/Versifine/locus/internal/world"
@@ -11,31 +12,56 @@ import (
 
 type BehaviorFunc func(bctx BehaviorCtx) error
 
+type BehaviorExitReason string
+
+const (
+	BehaviorExitCompleted BehaviorExitReason = "completed"
+	BehaviorExitCancelled BehaviorExitReason = "cancelled"
+	BehaviorExitFailed    BehaviorExitReason = "failed"
+	BehaviorExitPreempted BehaviorExitReason = "preempted"
+)
+
+type BehaviorEnd struct {
+	Name   string
+	RunID  uint64
+	Reason BehaviorExitReason
+	Err    error
+}
+
 type behaviorHandle struct {
 	name     string
+	runID    uint64
 	priority int
 	channels map[Channel]struct{}
 
 	tickCh   chan world.Snapshot
 	outputCh chan PartialInput
 	cancel   context.CancelFunc
+
+	stopReasonMu sync.Mutex
+	stopReason   BehaviorExitReason
 }
 
 type BehaviorRunner struct {
 	mu            sync.Mutex
 	active        map[string]*behaviorHandle
 	channelOwners map[Channel]string
+	runSeq        atomic.Uint64
 
 	send     func(string) error
 	snapshot func() world.Snapshot
+	blocks   BlockAccess
+	endCh    chan BehaviorEnd
 }
 
-func NewBehaviorRunner(send func(string) error, snapshot func() world.Snapshot) *BehaviorRunner {
+func NewBehaviorRunner(send func(string) error, snapshot func() world.Snapshot, blocks BlockAccess) *BehaviorRunner {
 	return &BehaviorRunner{
 		active:        make(map[string]*behaviorHandle),
 		channelOwners: make(map[Channel]string),
 		send:          send,
 		snapshot:      snapshot,
+		blocks:        blocks,
+		endCh:         make(chan BehaviorEnd, 64),
 	}
 }
 
@@ -69,6 +95,7 @@ func (r *BehaviorRunner) Start(name string, fn BehaviorFunc, channels []Channel,
 	ctx, cancel := context.WithCancel(context.Background())
 	h := &behaviorHandle{
 		name:     name,
+		runID:    r.runSeq.Add(1),
 		priority: priority,
 		channels: make(map[Channel]struct{}, len(channels)),
 		tickCh:   make(chan world.Snapshot, 1),
@@ -89,11 +116,12 @@ func (r *BehaviorRunner) Start(name string, fn BehaviorFunc, channels []Channel,
 		Output:     h.outputCh,
 		SendFunc:   r.send,
 		SnapshotFn: r.snapshot,
+		Blocks:     r.blocks,
 	}
 
 	go func(handle *behaviorHandle) {
-		defer r.cleanup(handle)
-		_ = fn(bctx)
+		err := fn(bctx)
+		r.cleanup(handle, ctx, err)
 	}(h)
 
 	return true
@@ -142,6 +170,7 @@ func (r *BehaviorRunner) Cancel(name string) {
 	h := r.active[name]
 	r.mu.Unlock()
 	if h != nil {
+		h.markStopReason(BehaviorExitCancelled)
 		h.cancel()
 	}
 }
@@ -158,8 +187,16 @@ func (r *BehaviorRunner) CancelAll() {
 	r.mu.Unlock()
 
 	for _, h := range handles {
+		h.markStopReason(BehaviorExitCancelled)
 		h.cancel()
 	}
+}
+
+func (r *BehaviorRunner) BehaviorEnds() <-chan BehaviorEnd {
+	if r == nil {
+		return nil
+	}
+	return r.endCh
 }
 
 func (r *BehaviorRunner) Active() []string {
@@ -186,14 +223,28 @@ func (r *BehaviorRunner) ActiveCount() int {
 	return len(r.active)
 }
 
-func (r *BehaviorRunner) cleanup(handle *behaviorHandle) {
+func (r *BehaviorRunner) cleanup(handle *behaviorHandle, ctx context.Context, err error) {
 	if handle == nil {
 		return
 	}
+
+	reason := handle.getStopReason()
+	if reason == "" {
+		switch {
+		case ctx != nil && ctx.Err() != nil:
+			reason = BehaviorExitCancelled
+		case err != nil:
+			reason = BehaviorExitFailed
+		default:
+			reason = BehaviorExitCompleted
+		}
+	}
+
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	current := r.active[handle.name]
 	if current != handle {
+		r.mu.Unlock()
+		r.emitBehaviorEnd(handle, reason, err)
 		return
 	}
 	delete(r.active, handle.name)
@@ -202,6 +253,9 @@ func (r *BehaviorRunner) cleanup(handle *behaviorHandle) {
 			delete(r.channelOwners, ch)
 		}
 	}
+	r.mu.Unlock()
+
+	r.emitBehaviorEnd(handle, reason, err)
 }
 
 func (r *BehaviorRunner) findConflictsLocked(channels []Channel) []string {
@@ -224,6 +278,7 @@ func (r *BehaviorRunner) preemptLocked(name string) {
 	if h == nil {
 		return
 	}
+	h.markStopReason(BehaviorExitPreempted)
 	h.cancel()
 	delete(r.active, name)
 	for ch, owner := range r.channelOwners {
@@ -231,6 +286,40 @@ func (r *BehaviorRunner) preemptLocked(name string) {
 			delete(r.channelOwners, ch)
 		}
 	}
+}
+
+func (r *BehaviorRunner) emitBehaviorEnd(handle *behaviorHandle, reason BehaviorExitReason, err error) {
+	if r == nil || handle == nil {
+		return
+	}
+	evt := BehaviorEnd{
+		Name:   handle.name,
+		RunID:  handle.runID,
+		Reason: reason,
+		Err:    err,
+	}
+	r.endCh <- evt
+}
+
+func (h *behaviorHandle) markStopReason(reason BehaviorExitReason) {
+	if h == nil || reason == "" {
+		return
+	}
+	h.stopReasonMu.Lock()
+	if h.stopReason == "" {
+		h.stopReason = reason
+	}
+	h.stopReasonMu.Unlock()
+}
+
+func (h *behaviorHandle) getStopReason() BehaviorExitReason {
+	if h == nil {
+		return ""
+	}
+	h.stopReasonMu.Lock()
+	reason := h.stopReason
+	h.stopReasonMu.Unlock()
+	return reason
 }
 
 func pushLatestSnapshot(ch chan world.Snapshot, snap world.Snapshot) {
