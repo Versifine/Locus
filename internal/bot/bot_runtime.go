@@ -125,6 +125,13 @@ func (b *Bot) GetBlockState(x, y, z int) (int32, bool) {
 	return b.blockStore.GetBlockState(x, y, z)
 }
 
+func (b *Bot) GetBlockNameByStateID(stateID int32) (string, bool) {
+	if b.blockStore == nil {
+		return "", false
+	}
+	return b.blockStore.GetBlockNameByStateID(stateID)
+}
+
 func (b *Bot) logUnhandledPlayPacket(packetID int32) {
 	b.unhandledMu.Lock()
 	defer b.unhandledMu.Unlock()
