@@ -26,6 +26,12 @@ type thinker struct {
 	runner    *skill.BehaviorRunner
 }
 
+type ThinkerTrace struct {
+	Thoughts   []string
+	ToolCalls  []llm.ToolContentBlock
+	StopReason string
+}
+
 func newThinker(client thinkerClient, tools []llm.ToolDefinition, executor ToolExecutor, runner *skill.BehaviorRunner) *thinker {
 	return &thinker{
 		llmClient: client,
@@ -35,29 +41,41 @@ func newThinker(client thinkerClient, tools []llm.ToolDefinition, executor ToolE
 	}
 }
 
-func (t *thinker) think(ctx context.Context, snap world.Snapshot, events []BufferedEvent) error {
+func (t *thinker) think(ctx context.Context, snap world.Snapshot, events []BufferedEvent, shortTerm string) (ThinkerTrace, error) {
+	trace := ThinkerTrace{}
 	if t == nil || t.llmClient == nil {
-		return nil
+		return trace, nil
 	}
 
 	messages := []llm.ToolMessage{
 		{Role: "system", Content: thinkerSystemPrompt(t.llmClient.Config().SystemPrompt)},
-		{Role: "user", Content: thinkerInitialInput(snap, events, t.runner)},
+		{Role: "user", Content: thinkerInitialInput(snap, events, t.runner, shortTerm)},
 	}
 
 	for {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			trace.StopReason = "interrupted"
+			return trace, ctx.Err()
 		default:
 		}
 
 		response, err := t.llmClient.CallWithTools(ctx, messages, t.tools)
 		if err != nil {
-			return err
+			trace.StopReason = "error"
+			return trace, err
+		}
+		trace.StopReason = response.StopReason
+
+		thoughts, toolCalls := splitResponseBlocks(response.Content)
+		if len(thoughts) > 0 {
+			trace.Thoughts = append(trace.Thoughts, thoughts...)
+		}
+		if len(toolCalls) > 0 {
+			trace.ToolCalls = append(trace.ToolCalls, toolCalls...)
 		}
 
-		assistantText, toolCalls := splitResponseBlocks(response.Content)
+		assistantText := strings.Join(thoughts, "\n")
 		if assistantText != "" || len(toolCalls) > 0 {
 			assistantMsg := llm.ToolMessage{Role: "assistant", Content: assistantText}
 			if len(toolCalls) > 0 {
@@ -68,7 +86,10 @@ func (t *thinker) think(ctx context.Context, snap world.Snapshot, events []Buffe
 
 		if len(toolCalls) == 0 {
 			if response.StopReason == "end_turn" || response.StopReason == "" {
-				return nil
+				if trace.StopReason == "" {
+					trace.StopReason = "end_turn"
+				}
+				return trace, nil
 			}
 			continue
 		}
@@ -89,7 +110,7 @@ func (t *thinker) think(ctx context.Context, snap world.Snapshot, events []Buffe
 	}
 }
 
-func splitResponseBlocks(blocks []llm.ToolContentBlock) (string, []llm.ToolContentBlock) {
+func splitResponseBlocks(blocks []llm.ToolContentBlock) ([]string, []llm.ToolContentBlock) {
 	textParts := make([]string, 0, len(blocks))
 	toolCalls := make([]llm.ToolContentBlock, 0, len(blocks))
 
@@ -107,7 +128,7 @@ func splitResponseBlocks(blocks []llm.ToolContentBlock) (string, []llm.ToolConte
 		}
 	}
 
-	return strings.Join(textParts, "\n"), toolCalls
+	return textParts, toolCalls
 }
 
 func toOpenAIToolCalls(calls []llm.ToolContentBlock) []llm.ToolCall {
@@ -138,13 +159,18 @@ func thinkerSystemPrompt(base string) string {
 	return base + "\n\n重要：你必须通过工具获取信息和执行动作。[Basic Status] 提供你的基础状态，[Events] 是最近发生的事件。根据这些信息决定下一步行动。如果不确定周围环境，先调用 look() 观察。"
 }
 
-func thinkerInitialInput(snap world.Snapshot, events []BufferedEvent, runner *skill.BehaviorRunner) string {
+func thinkerInitialInput(snap world.Snapshot, events []BufferedEvent, runner *skill.BehaviorRunner, shortTerm string) string {
 	active := "none"
 	if runner != nil {
 		names := runner.Active()
 		if len(names) > 0 {
 			active = strings.Join(names, ",")
 		}
+	}
+
+	shortTerm = strings.TrimSpace(shortTerm)
+	if shortTerm == "" {
+		shortTerm = "- none"
 	}
 
 	eventLines := make([]string, 0, len(events))
@@ -156,7 +182,7 @@ func thinkerInitialInput(snap world.Snapshot, events []BufferedEvent, runner *sk
 	}
 
 	return fmt.Sprintf(
-		"[Basic Status]\nposition=(%.2f, %.2f, %.2f) yaw=%.2f pitch=%.2f hp=%.1f food=%d active=%s\n\n[Events]\n%s",
+		"[Basic Status]\nposition=(%.2f, %.2f, %.2f) yaw=%.2f pitch=%.2f hp=%.1f food=%d active=%s\n\n[Short-term Memory]\n%s\n\n[Events]\n%s",
 		snap.Position.X,
 		snap.Position.Y,
 		snap.Position.Z,
@@ -165,6 +191,7 @@ func thinkerInitialInput(snap world.Snapshot, events []BufferedEvent, runner *sk
 		snap.Health,
 		snap.Food,
 		active,
+		shortTerm,
 		strings.Join(eventLines, "\n"),
 	)
 }

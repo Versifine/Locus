@@ -22,10 +22,13 @@ const (
 	thinkIdleInterval      = 6 * time.Second
 	thinkEventThreshold    = 4
 	thinkerDefaultTimeout  = 120 * time.Second
+	episodeOpenTimeout     = 5 * time.Minute
 	eventInChanBuffer      = 256
 	thinkerActionChanSize  = 64
 	waitForIdlePollTick    = 50 * time.Millisecond
 	defaultWaitForIdleTime = 10 * time.Second
+	pendingEndTTLInTicks   = 12000
+	pendingEndMaxEntries   = 256
 )
 
 type incomingEvent struct {
@@ -61,6 +64,25 @@ type LoopAgent struct {
 	lastThinkAt    time.Time
 	idleSince      time.Time
 
+	memoryStore *MemoryStore
+	episodeLog  *EpisodeLog
+
+	contextMu    sync.Mutex
+	activePlayer string
+
+	autoRuleMu       sync.Mutex
+	autoRuleLastTick map[string]uint64
+
+	episodeRunMu       sync.Mutex
+	episodeByRunID     map[uint64]string
+	pendingBehaviorEnd map[uint64]pendingBehaviorEnd
+
+	thinkCtxMu        sync.Mutex
+	thinkCtxStartTick uint64
+	thinkCtxTrigger   string
+	thinkCtxEvents    []BufferedEvent
+	thinkCtxRuns      map[uint64]string
+
 	headMu       sync.Mutex
 	headYaw      float32
 	headPitch    float32
@@ -84,20 +106,26 @@ func NewLoopAgent(
 	}
 
 	a := &LoopAgent{
-		bus:            bus,
-		sender:         sender,
-		stateProvider:  stateProvider,
-		body:           bodyController,
-		runner:         runner,
-		llmClient:      llmClient,
-		attention:      NewAttention(bus),
-		eventBuffer:    NewEventBuffer(100),
-		eventInCh:      make(chan incomingEvent, eventInChanBuffer),
-		speakCh:        make(chan string, thinkerActionChanSize),
-		intentCh:       make(chan Intent, thinkerActionChanSize),
-		toolDefs:       ToLLMTools(AllTools()),
-		behaviorDeps:   behaviors.Deps(),
-		thinkerTimeout: thinkerDefaultTimeout,
+		bus:                bus,
+		sender:             sender,
+		stateProvider:      stateProvider,
+		body:               bodyController,
+		runner:             runner,
+		llmClient:          llmClient,
+		attention:          NewAttention(bus),
+		eventBuffer:        NewEventBuffer(100),
+		eventInCh:          make(chan incomingEvent, eventInChanBuffer),
+		speakCh:            make(chan string, thinkerActionChanSize),
+		intentCh:           make(chan Intent, thinkerActionChanSize),
+		toolDefs:           ToLLMTools(AllTools()),
+		behaviorDeps:       behaviors.Deps(),
+		thinkerTimeout:     thinkerDefaultTimeout,
+		memoryStore:        NewMemoryStore(defaultMemoryCapacity),
+		episodeLog:         NewEpisodeLog(defaultEpisodeCapacity),
+		autoRuleLastTick:   map[string]uint64{},
+		episodeByRunID:     map[uint64]string{},
+		pendingBehaviorEnd: map[uint64]pendingBehaviorEnd{},
+		thinkCtxRuns:       map[uint64]string{},
 	}
 
 	a.toolExecutor = ToolExecutor{
@@ -108,6 +136,8 @@ func NewLoopAgent(
 		IntentChan: a.intentCh,
 		CancelAll:  runner.CancelAll,
 		SetHead:    a.setHead,
+		Recall:     a.recallMemory,
+		Remember:   a.rememberMemory,
 		WaitForIdle: func(ctx context.Context, timeout time.Duration) (map[string]any, error) {
 			return a.waitForIdle(ctx, timeout)
 		},
@@ -192,6 +222,8 @@ func (a *LoopAgent) tick(ctx context.Context, snap world.Snapshot) {
 
 	a.attention.Tick(snap)
 	a.drainEvents()
+	a.closeTimedOutEpisodes()
+	a.cleanupPendingBehaviorEnds(a.tickCounter.Load())
 
 	if a.shouldThink() {
 		a.startThinker(ctx, snap)
@@ -215,6 +247,7 @@ func (a *LoopAgent) drainEvents() {
 	for {
 		select {
 		case evt := <-a.eventInCh:
+			a.observeIncomingEvent(evt)
 			a.eventBuffer.PushAt(evt.name, evt.payload, evt.priority, evt.tickID)
 		default:
 			return
@@ -274,10 +307,14 @@ func (a *LoopAgent) startThinker(parent context.Context, snap world.Snapshot) {
 	a.thinkerMu.Unlock()
 
 	events := a.eventBuffer.DrainAll()
+	shortTerm := a.shortTermMemoryForPrompt()
+	startTick := a.tickCounter.Load()
+	a.setThinkContext(startTick, events)
 	t := newThinker(a.llmClient, a.toolDefs, a.toolExecutor, a.runner)
 
 	go func() {
 		defer func() {
+			a.clearThinkContext(startTick)
 			cancel()
 			a.thinkerMu.Lock()
 			a.thinkerRunning = false
@@ -286,7 +323,9 @@ func (a *LoopAgent) startThinker(parent context.Context, snap world.Snapshot) {
 			a.thinkerMu.Unlock()
 		}()
 
-		if err := t.think(ctx, snap, events); err != nil && ctx.Err() == nil {
+		trace, err := t.think(ctx, snap, events, shortTerm)
+		a.onThinkerFinished(startTick, events, trace, err)
+		if err != nil && ctx.Err() == nil {
 			slog.Warn("Thinker exited with error", "error", err)
 		}
 	}()
@@ -333,9 +372,12 @@ func (a *LoopAgent) startIntent(intent Intent) {
 		slog.Warn("set_intent mapping failed", "action", intent.Action, "error", err)
 		return
 	}
-	if ok := a.runner.Start(intent.Action, fn, channels, priority); !ok {
+	ok, runID := a.runner.StartWithRunID(intent.Action, fn, channels, priority)
+	if !ok {
 		slog.Warn("set_intent start rejected", "action", intent.Action)
+		return
 	}
+	a.onBehaviorStartedFromIntent(intent, runID)
 }
 
 func (a *LoopAgent) waitForIdle(ctx context.Context, timeout time.Duration) (map[string]any, error) {

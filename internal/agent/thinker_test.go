@@ -84,7 +84,7 @@ func TestThinkerToolUseLoop(t *testing.T) {
 	exec := ToolExecutor{SpeakChan: speakCh}
 	th := newThinker(client, ToLLMTools(AllTools()), exec, nil)
 
-	err := th.think(context.Background(), worldSnapshotForTest(), nil)
+	_, err := th.think(context.Background(), worldSnapshotForTest(), nil, "")
 	if err != nil {
 		t.Fatalf("think error: %v", err)
 	}
@@ -115,7 +115,8 @@ func TestThinkerInterruptedByContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		done <- th.think(ctx, worldSnapshotForTest(), nil)
+		_, err := th.think(ctx, worldSnapshotForTest(), nil, "")
+		done <- err
 	}()
 
 	time.Sleep(50 * time.Millisecond)
@@ -181,7 +182,7 @@ func TestThinkerSendsOpenAIToolCallHistory(t *testing.T) {
 	exec := ToolExecutor{SpeakChan: speakCh}
 	th := newThinker(client, ToLLMTools(AllTools()), exec, nil)
 
-	if err := th.think(context.Background(), worldSnapshotForTest(), nil); err != nil {
+	if _, err := th.think(context.Background(), worldSnapshotForTest(), nil, ""); err != nil {
 		t.Fatalf("think error: %v", err)
 	}
 }
@@ -221,8 +222,9 @@ func TestThinkerInitialInputIncludesFormattedEvents(t *testing.T) {
 			{Name: event.EventDamage, TickID: 21, Payload: event.DamageEvent{Amount: 2, NewHP: 18}},
 		},
 		nil,
+		"- [closed] id=ep-1 tick=10 trigger=chat decision=go_to outcome=behavior_end",
 	)
-	if !containsAll(text, []string{"[Basic Status]", "[Events]", "damage@tick=21", "amount=2.0", "hp=18.0"}) {
+	if !containsAll(text, []string{"[Basic Status]", "[Short-term Memory]", "[Events]", "damage@tick=21", "amount=2.0", "hp=18.0"}) {
 		t.Fatalf("initial input=%q", text)
 	}
 }

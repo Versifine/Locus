@@ -66,8 +66,13 @@ func NewBehaviorRunner(send func(string) error, snapshot func() world.Snapshot, 
 }
 
 func (r *BehaviorRunner) Start(name string, fn BehaviorFunc, channels []Channel, priority int) bool {
+	ok, _ := r.StartWithRunID(name, fn, channels, priority)
+	return ok
+}
+
+func (r *BehaviorRunner) StartWithRunID(name string, fn BehaviorFunc, channels []Channel, priority int) (bool, uint64) {
 	if r == nil || fn == nil || name == "" {
-		return false
+		return false, 0
 	}
 
 	r.mu.Lock()
@@ -83,7 +88,7 @@ func (r *BehaviorRunner) Start(name string, fn BehaviorFunc, channels []Channel,
 		}
 		if priority <= owner.priority {
 			r.mu.Unlock()
-			return false
+			return false, 0
 		}
 	}
 
@@ -123,7 +128,7 @@ func (r *BehaviorRunner) Start(name string, fn BehaviorFunc, channels []Channel,
 		r.cleanup(handle, ctx, err)
 	}(h)
 
-	return true
+	return true, h.runID
 }
 
 func (r *BehaviorRunner) Tick(snap world.Snapshot) body.InputState {
