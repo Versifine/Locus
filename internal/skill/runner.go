@@ -72,8 +72,7 @@ func (r *BehaviorRunner) Start(name string, fn BehaviorFunc, channels []Channel,
 
 	r.mu.Lock()
 	if _, exists := r.active[name]; exists {
-		r.mu.Unlock()
-		return false
+		r.preemptLocked(name)
 	}
 
 	conflicts := r.findConflictsLocked(channels)
@@ -221,6 +220,16 @@ func (r *BehaviorRunner) ActiveCount() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return len(r.active)
+}
+
+func (r *BehaviorRunner) OwnsChannel(ch Channel) bool {
+	if r == nil {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	_, ok := r.channelOwners[ch]
+	return ok
 }
 
 func (r *BehaviorRunner) cleanup(handle *behaviorHandle, ctx context.Context, err error) {

@@ -17,6 +17,8 @@ import (
 	debugconsole "github.com/Versifine/locus/internal/debug"
 	"github.com/Versifine/locus/internal/llm"
 	"github.com/Versifine/locus/internal/logger"
+	"github.com/Versifine/locus/internal/skill"
+	"github.com/Versifine/locus/internal/skill/behaviors"
 	"github.com/Versifine/locus/internal/world"
 )
 
@@ -57,7 +59,6 @@ func startBot(ctx context.Context, cfg *config.Config) error {
 		cfg.Bot.Username,
 	)
 	llmClient := llm.NewLLMClient(&cfg.LLM)
-	_ = agent.NewAgent(b.Bus(), b, b, llmClient)
 
 	runCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
@@ -92,8 +93,34 @@ func startBot(ctx context.Context, cfg *config.Config) error {
 			return
 		}
 
-		slog.Info("Body physics loop enabled")
-		runIdleBodyLoop(runCtx, bodyController, b)
+		if cfg.AgentLegacyChat {
+			_ = agent.NewAgent(b.Bus(), b, b, llmClient)
+			slog.Info("Legacy chat mode enabled")
+			runIdleBodyLoop(runCtx, bodyController, b)
+			return
+		}
+
+		runner := skill.NewBehaviorRunner(b.SendMsgToServer, b.GetState, b)
+		idle := behaviors.IdleSpec()
+		if ok := runner.Start(idle.Name, idle.Fn, idle.Channels, idle.Priority); !ok {
+			slog.Warn("Failed to start idle behavior")
+		}
+
+		loopAgent := agent.NewLoopAgent(
+			b.Bus(),
+			b,
+			b,
+			bodyController,
+			runner,
+			llmClient,
+			b,
+			agent.DefaultCamera(),
+		)
+
+		slog.Info("Agent loop enabled")
+		if err := loopAgent.Start(runCtx); err != nil && runCtx.Err() == nil {
+			slog.Error("Agent loop stopped with error", "error", err)
+		}
 	}()
 
 	err := <-botErrCh

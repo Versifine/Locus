@@ -35,6 +35,8 @@ type ToolExecutor struct {
 
 	SpeakChan  chan<- string
 	IntentChan chan<- Intent
+	CancelAll  func()
+	SetHead    func(yaw, pitch float32)
 
 	WaitForIdle func(ctx context.Context, timeout time.Duration) (map[string]any, error)
 	Recall      func(ctx context.Context, query string, filter map[string]any, topK int) (map[string]any, error)
@@ -69,6 +71,22 @@ func (e ToolExecutor) ExecuteTool(ctx context.Context, name string, input map[st
 		return e.executeCheckInventory()
 	case "speak":
 		return e.executeSpeak(ctx, input)
+	case "stop":
+		return e.executeStop()
+	case "go_to":
+		return e.executeActionIntent(ctx, "go_to", input)
+	case "follow":
+		return e.executeActionIntent(ctx, "follow", input)
+	case "attack":
+		return e.executeActionIntent(ctx, "attack", input)
+	case "mine":
+		return e.executeActionIntent(ctx, "mine", input)
+	case "place_block":
+		return e.executeActionIntent(ctx, "place_block", input)
+	case "use_item":
+		return e.executeActionIntent(ctx, "use_item", input)
+	case "switch_slot":
+		return e.executeActionIntent(ctx, "switch_slot", input)
 	case "set_intent":
 		return e.executeSetIntent(ctx, input)
 	case "wait_for_idle":
@@ -112,6 +130,10 @@ func (e ToolExecutor) executeLook(input map[string]any) (string, error) {
 		pitch += 45
 	default:
 		return "", fmt.Errorf("invalid direction: %s", direction)
+	}
+
+	if e.SetHead != nil {
+		e.SetHead(float32(yaw), float32(pitch))
 	}
 
 	eye := Vec3{X: snap.Position.X, Y: snap.Position.Y + 1.62, Z: snap.Position.Z}
@@ -255,6 +277,35 @@ func (e ToolExecutor) executeSpeak(ctx context.Context, input map[string]any) (s
 	}
 
 	return toJSONString(map[string]any{"status": "ok"}), nil
+}
+
+func (e ToolExecutor) executeStop() (string, error) {
+	if e.CancelAll != nil {
+		e.CancelAll()
+	}
+	return toJSONString(map[string]any{"status": "ok"}), nil
+}
+
+func (e ToolExecutor) executeActionIntent(ctx context.Context, action string, input map[string]any) (string, error) {
+	if e.IntentChan == nil {
+		return "", fmt.Errorf("intent channel unavailable")
+	}
+	if input == nil {
+		input = map[string]any{}
+	}
+	input["action"] = action
+	intent, err := ParseIntent(input)
+	if err != nil {
+		return "", err
+	}
+
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	case e.IntentChan <- intent:
+	}
+
+	return toJSONString(map[string]any{"status": "ok", "action": intent.Action}), nil
 }
 
 func (e ToolExecutor) executeSetIntent(ctx context.Context, input map[string]any) (string, error) {

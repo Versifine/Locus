@@ -19,10 +19,22 @@ type ToolDefinition struct {
 }
 
 type ToolMessage struct {
-	Role       string `json:"role"`
-	Content    any    `json:"content,omitempty"`
-	ToolCallID string `json:"tool_call_id,omitempty"`
-	Name       string `json:"name,omitempty"`
+	Role       string     `json:"role"`
+	Content    any        `json:"content,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
+	Name       string     `json:"name,omitempty"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+}
+
+type ToolCall struct {
+	ID       string           `json:"id"`
+	Type     string           `json:"type"`
+	Function ToolCallFunction `json:"function"`
+}
+
+type ToolCallFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
 }
 
 type ToolContentBlock struct {
@@ -59,20 +71,9 @@ type toolChoice struct {
 }
 
 type toolResponseMessage struct {
-	Role      string         `json:"role"`
-	Content   any            `json:"content"`
-	ToolCalls []toolCallItem `json:"tool_calls"`
-}
-
-type toolCallItem struct {
-	ID       string           `json:"id"`
-	Type     string           `json:"type"`
-	Function toolCallFunction `json:"function"`
-}
-
-type toolCallFunction struct {
-	Name      string `json:"name"`
-	Arguments string `json:"arguments"`
+	Role      string     `json:"role"`
+	Content   any        `json:"content"`
+	ToolCalls []ToolCall `json:"tool_calls"`
 }
 
 func (c *Client) CallWithTools(ctx context.Context, messages []ToolMessage, tools []ToolDefinition) (ToolResponse, error) {

@@ -75,7 +75,7 @@ func FormatEntities(entities []world.Entity, players []world.Player) string {
 		if entity.Type == 71 && entity.ItemName != "" {
 			label = fmt.Sprintf("Item(%s)", entity.ItemName)
 		}
-		lines = append(lines, fmt.Sprintf("%s: [%d,%d,%d]", label, int(math.Round(entity.X)), int(math.Round(entity.Y)), int(math.Round(entity.Z))))
+		lines = append(lines, fmt.Sprintf("%s(id=%d): [%d,%d,%d]", label, entity.EntityID, int(math.Round(entity.X)), int(math.Round(entity.Y)), int(math.Round(entity.Z))))
 	}
 	sort.Strings(lines)
 	return strings.Join(lines, "\n")

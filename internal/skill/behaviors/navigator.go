@@ -2,6 +2,7 @@ package behaviors
 
 import (
 	"errors"
+	"math"
 
 	"github.com/Versifine/locus/internal/skill"
 	"github.com/Versifine/locus/internal/world"
@@ -101,8 +102,10 @@ func (n *pathNavigator) Tick(
 		return skill.PartialInput{}, false, nil
 	}
 
-	forward, yaw := skill.CalcWalkToward(snap.Position, blockCenter(n.path[n.waypointIdx]))
-	partial := skill.PartialInput{Forward: boolPtr(forward), Yaw: float32Ptr(yaw)}
+	wp := n.path[n.waypointIdx]
+	forward, yaw := skill.CalcWalkToward(snap.Position, blockCenter(wp))
+	needJump := wp.Y > int(math.Floor(snap.Position.Y))
+	partial := skill.PartialInput{Forward: boolPtr(forward), Yaw: float32Ptr(yaw), Jump: boolPtr(needJump)}
 	if sprint {
 		partial.Sprint = boolPtr(forward)
 	}
