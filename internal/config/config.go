@@ -7,13 +7,14 @@ import (
 )
 
 type Config struct {
-	Listen  ListenConfig  `yaml:"listen"`
-	Backend BackendConfig `yaml:"backend"`
-	Logging LoggingConfig `yaml:"logging"`
-	LLM     LLMConfig     `yaml:"llm"`
-	Debug   bool          `yaml:"debug"`
-	Mode    string        `yaml:"mode"`
-	Bot     BotConfig     `yaml:"bot"`
+	Listen          ListenConfig  `yaml:"listen"`
+	Backend         BackendConfig `yaml:"backend"`
+	Logging         LoggingConfig `yaml:"logging"`
+	LLM             LLMConfig     `yaml:"llm"`
+	Debug           bool          `yaml:"debug"`
+	Mode            string        `yaml:"mode"`
+	Bot             BotConfig     `yaml:"bot"`
+	AgentLegacyChat bool          `yaml:"agent_legacy_chat"`
 }
 type BotConfig struct {
 	Username string `yaml:"username"`

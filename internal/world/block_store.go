@@ -406,11 +406,29 @@ func (bs *BlockStore) GetBlockNameByStateID(stateID int32) (string, bool) {
 }
 
 func defaultBlocksJSONPath() string {
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
+	candidates := []string{
+		filepath.Join("1.21.11", "blocks.json"),
+	}
+	if exePath, err := os.Executable(); err == nil {
+		candidates = append(candidates, filepath.Join(filepath.Dir(exePath), "1.21.11", "blocks.json"))
+	}
+	if _, file, _, ok := runtime.Caller(0); ok {
+		candidates = append(candidates, filepath.Join(filepath.Dir(file), "..", "..", "1.21.11", "blocks.json"))
+	}
+	return firstExistingPath(candidates)
+}
+
+func firstExistingPath(candidates []string) string {
+	for _, candidate := range candidates {
+		clean := filepath.Clean(candidate)
+		if _, err := os.Stat(clean); err == nil {
+			return clean
+		}
+	}
+	if len(candidates) == 0 {
 		return filepath.Join("1.21.11", "blocks.json")
 	}
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "1.21.11", "blocks.json"))
+	return filepath.Clean(candidates[0])
 }
 
 func floorDiv16(v int) int {

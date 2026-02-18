@@ -164,6 +164,7 @@ func TestPacketIDsConsistency(t *testing.T) {
 		checkID(t, m, "respawn", S2CRespawn)
 		checkID(t, m, "update_view_position", S2CUpdateViewPosition)
 		checkID(t, m, "entity_metadata", S2CEntityMetadata)
+		checkID(t, m, "held_item_slot", S2CHeldItemSlot)
 	})
 
 	t.Run("Play ToServer", func(t *testing.T) {
@@ -181,6 +182,11 @@ func TestPacketIDsConsistency(t *testing.T) {
 		checkID(t, m, "block_dig", C2SBlockDig)
 		checkID(t, m, "entity_action", C2SEntityAction)
 		checkID(t, m, "player_input", C2SPlayerInput)
+		checkID(t, m, "use_entity", C2SUseEntity)
+		checkID(t, m, "held_item_slot", C2SHeldItemSlot)
+		checkID(t, m, "arm_animation", C2SArmAnimation)
+		checkID(t, m, "block_place", C2SBlockPlace)
+		checkID(t, m, "use_item", C2SUseItem)
 	})
 }
 

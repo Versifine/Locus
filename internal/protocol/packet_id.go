@@ -53,6 +53,7 @@ const (
 	S2CEntityMetadata           = 0x61
 	S2CExperience               = 0x65
 	S2CUpdateHealth             = 0x66
+	S2CHeldItemSlot             = 0x67
 	S2CUpdateTime               = 0x6f
 	S2CSystemChatMessage        = 0x77
 	S2CEntityTeleport           = 0x7b
@@ -65,6 +66,7 @@ const (
 	C2SChunkBatchReceived    = 0x0a
 	C2SClientCommand         = 0x0b
 	C2SPlayClientInformation = 0x0d
+	C2SUseEntity             = 0x19
 	C2SPlayKeepAlive         = 0x1b
 	C2SPlayerPosition        = 0x1d
 	C2SPlayerPositionLook    = 0x1e
@@ -73,4 +75,8 @@ const (
 	C2SEntityAction          = 0x29
 	C2SPlayerInput           = 0x2a
 	C2SPlayerLoaded          = 0x2b
+	C2SHeldItemSlot          = 0x34
+	C2SArmAnimation          = 0x3c
+	C2SBlockPlace            = 0x3f
+	C2SUseItem               = 0x40
 )

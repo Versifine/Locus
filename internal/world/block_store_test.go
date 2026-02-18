@@ -40,6 +40,25 @@ func TestLoadStateSolidityFromBlocksJSON(t *testing.T) {
 	}
 }
 
+func TestFirstExistingPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	missing := filepath.Join(tmpDir, "missing.json")
+	existing := filepath.Join(tmpDir, "blocks.json")
+	if err := os.WriteFile(existing, []byte("{}"), 0o644); err != nil {
+		t.Fatalf("write existing file failed: %v", err)
+	}
+
+	got := firstExistingPath([]string{missing, existing})
+	if got != filepath.Clean(existing) {
+		t.Fatalf("firstExistingPath = %q, want %q", got, filepath.Clean(existing))
+	}
+
+	fallback := firstExistingPath([]string{missing})
+	if fallback != filepath.Clean(missing) {
+		t.Fatalf("fallback path = %q, want %q", fallback, filepath.Clean(missing))
+	}
+}
+
 func TestLoadStateMetadataFromBlocksJSON(t *testing.T) {
 	tmpDir := t.TempDir()
 	blocksJSONPath := filepath.Join(tmpDir, "blocks.json")

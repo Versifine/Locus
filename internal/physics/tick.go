@@ -9,17 +9,33 @@ type PhysicsState struct {
 }
 
 type InputState struct {
-	Forward  bool
-	Backward bool
-	Left     bool
-	Right    bool
-	Jump     bool
-	Sneak    bool
-	Sprint   bool
-	Attack   bool
-	Use      bool
-	Yaw      float32
-	Pitch    float32
+	Forward        bool
+	Backward       bool
+	Left           bool
+	Right          bool
+	Jump           bool
+	Sneak          bool
+	Sprint         bool
+	Attack         bool
+	Use            bool
+	AttackTarget   *int32
+	BreakTarget    *BlockPos
+	PlaceTarget    *PlaceAction
+	InteractTarget *int32
+	HotbarSlot     *int8
+	Yaw            float32
+	Pitch          float32
+}
+
+type BlockPos struct {
+	X int
+	Y int
+	Z int
+}
+
+type PlaceAction struct {
+	Pos  BlockPos
+	Face int
 }
 
 func PhysicsTick(state *PhysicsState, input InputState, blockStore BlockStore) {

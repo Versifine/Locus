@@ -86,6 +86,68 @@ func parsePositionLookPayload(t *testing.T, packet *protocol.Packet) (float64, f
 	return x, y, z, yaw, pitch, flags
 }
 
+func parseUseEntityPayload(t *testing.T, packet *protocol.Packet) (int32, int32, *int32, bool) {
+	t.Helper()
+	r := bytes.NewReader(packet.Payload)
+	target, err := protocol.ReadVarint(r)
+	if err != nil {
+		t.Fatalf("ReadVarint(target) failed: %v", err)
+	}
+	action, err := protocol.ReadVarint(r)
+	if err != nil {
+		t.Fatalf("ReadVarint(action) failed: %v", err)
+	}
+	var hand *int32
+	if action == protocol.UseEntityActionInteract || action == protocol.UseEntityActionInteractAt {
+		value, err := protocol.ReadVarint(r)
+		if err != nil {
+			t.Fatalf("ReadVarint(hand) failed: %v", err)
+		}
+		hand = &value
+	}
+	sneaking, err := protocol.ReadBool(r)
+	if err != nil {
+		t.Fatalf("ReadBool(sneaking) failed: %v", err)
+	}
+	return target, action, hand, sneaking
+}
+
+func parseBlockDigPayload(t *testing.T, packet *protocol.Packet) (int32, int32, int32, int32, int8, int32) {
+	t.Helper()
+	r := bytes.NewReader(packet.Payload)
+	status, err := protocol.ReadVarint(r)
+	if err != nil {
+		t.Fatalf("ReadVarint(status) failed: %v", err)
+	}
+	rawPos, err := protocol.ReadInt64(r)
+	if err != nil {
+		t.Fatalf("ReadInt64(position) failed: %v", err)
+	}
+	face, err := protocol.ReadByte(r)
+	if err != nil {
+		t.Fatalf("ReadByte(face) failed: %v", err)
+	}
+	sequence, err := protocol.ReadVarint(r)
+	if err != nil {
+		t.Fatalf("ReadVarint(sequence) failed: %v", err)
+	}
+	x, y, z := decodePackedPosition(rawPos)
+	return status, x, y, z, int8(face), sequence
+}
+
+func decodePackedPosition(raw int64) (int32, int32, int32) {
+	v := uint64(raw)
+	x := signExtendInt32(int64((v>>38)&0x3FFFFFF), 26)
+	z := signExtendInt32(int64((v>>12)&0x3FFFFFF), 26)
+	y := signExtendInt32(int64(v&0xFFF), 12)
+	return x, y, z
+}
+
+func signExtendInt32(value int64, bits uint) int32 {
+	shift := 64 - bits
+	return int32((value << shift) >> shift)
+}
+
 func lastPacketByID(packets []*protocol.Packet, id int32) *protocol.Packet {
 	for i := len(packets) - 1; i >= 0; i-- {
 		if packets[i].ID == id {
@@ -322,5 +384,263 @@ func TestBodyTickSendsSneakViaPlayerInput(t *testing.T) {
 	}
 	if flags&(1<<5) == 0 {
 		t.Fatalf("player_input flags = 0x%02x, expected shift bit set", flags)
+	}
+}
+
+func TestBodyTickHotbarSlotSentOnlyOnChange(t *testing.T) {
+	store := newMockBlockStore()
+	addFloor(store, -4, 4, -4, 4, -1)
+	sender := &mockPacketSender{}
+	b := New(world.Position{X: 0.5, Y: 0.0, Z: 0.5}, true, sender, store, nil)
+
+	slot2 := int8(2)
+	if err := b.Tick(InputState{HotbarSlot: &slot2}); err != nil {
+		t.Fatalf("first Tick failed: %v", err)
+	}
+	if err := b.Tick(InputState{HotbarSlot: &slot2}); err != nil {
+		t.Fatalf("second Tick failed: %v", err)
+	}
+	slot3 := int8(3)
+	if err := b.Tick(InputState{HotbarSlot: &slot3}); err != nil {
+		t.Fatalf("third Tick failed: %v", err)
+	}
+
+	var slots []int16
+	for _, packet := range sender.packets {
+		if packet.ID != protocol.C2SHeldItemSlot {
+			continue
+		}
+		r := bytes.NewReader(packet.Payload)
+		slot, err := protocol.ReadInt16(r)
+		if err != nil {
+			t.Fatalf("ReadInt16(slot) failed: %v", err)
+		}
+		slots = append(slots, slot)
+	}
+
+	if len(slots) != 2 {
+		t.Fatalf("held_item_slot count = %d, want 2", len(slots))
+	}
+	if slots[0] != 2 || slots[1] != 3 {
+		t.Fatalf("held_item_slot payloads = %v, want [2 3]", slots)
+	}
+}
+
+func TestBodyTickAttackTargetSendsUseEntityAttack(t *testing.T) {
+	store := newMockBlockStore()
+	addFloor(store, -4, 4, -4, 4, -1)
+	sender := &mockPacketSender{}
+	b := New(world.Position{X: 0.5, Y: 0.0, Z: 0.5}, true, sender, store, nil)
+
+	target := int32(99)
+	if err := b.Tick(InputState{Attack: true, AttackTarget: &target}); err != nil {
+		t.Fatalf("Tick failed: %v", err)
+	}
+
+	packet := lastPacketByID(sender.packets, protocol.C2SUseEntity)
+	if packet == nil {
+		t.Fatalf("missing packet ID %d", protocol.C2SUseEntity)
+	}
+	gotTarget, action, hand, sneaking := parseUseEntityPayload(t, packet)
+	if gotTarget != 99 || action != protocol.UseEntityActionAttack || hand != nil || sneaking {
+		t.Fatalf("unexpected use_entity payload target=%d action=%d hand=%v sneaking=%v", gotTarget, action, hand, sneaking)
+	}
+}
+
+func TestBodyTickUseWithoutTargetSendsUseItem(t *testing.T) {
+	store := newMockBlockStore()
+	addFloor(store, -4, 4, -4, 4, -1)
+	sender := &mockPacketSender{}
+	b := New(world.Position{X: 0.5, Y: 0.0, Z: 0.5}, true, sender, store, nil)
+
+	if err := b.Tick(InputState{Use: true}); err != nil {
+		t.Fatalf("Tick failed: %v", err)
+	}
+
+	packet := lastPacketByID(sender.packets, protocol.C2SUseItem)
+	if packet == nil {
+		t.Fatalf("missing packet ID %d", protocol.C2SUseItem)
+	}
+	r := bytes.NewReader(packet.Payload)
+	hand, _ := protocol.ReadVarint(r)
+	sequence, _ := protocol.ReadVarint(r)
+	if hand != 0 || sequence != 0 {
+		t.Fatalf("use_item payload hand=%d sequence=%d, want 0/0", hand, sequence)
+	}
+}
+
+func TestBodyTickUsePlaceTargetSendsBlockPlace(t *testing.T) {
+	store := newMockBlockStore()
+	addFloor(store, -4, 4, -4, 4, -1)
+	sender := &mockPacketSender{}
+	b := New(world.Position{X: 0.5, Y: 0.0, Z: 0.5}, true, sender, store, nil)
+
+	place := physics.PlaceAction{Pos: physics.BlockPos{X: 1, Y: 64, Z: 2}, Face: 1}
+	if err := b.Tick(InputState{Use: true, PlaceTarget: &place}); err != nil {
+		t.Fatalf("Tick failed: %v", err)
+	}
+
+	packet := lastPacketByID(sender.packets, protocol.C2SBlockPlace)
+	if packet == nil {
+		t.Fatalf("missing packet ID %d", protocol.C2SBlockPlace)
+	}
+	r := bytes.NewReader(packet.Payload)
+	_, _ = protocol.ReadVarint(r) // hand
+	rawPos, _ := protocol.ReadInt64(r)
+	face, _ := protocol.ReadVarint(r)
+	x, y, z := decodePackedPosition(rawPos)
+	if x != 1 || y != 64 || z != 2 || face != 1 {
+		t.Fatalf("block_place payload pos=(%d,%d,%d) face=%d", x, y, z, face)
+	}
+}
+
+func TestBodyTickUseInteractTargetSendsUseEntityInteract(t *testing.T) {
+	store := newMockBlockStore()
+	addFloor(store, -4, 4, -4, 4, -1)
+	sender := &mockPacketSender{}
+	b := New(world.Position{X: 0.5, Y: 0.0, Z: 0.5}, true, sender, store, nil)
+
+	target := int32(11)
+	if err := b.Tick(InputState{Use: true, InteractTarget: &target, Sneak: true}); err != nil {
+		t.Fatalf("Tick failed: %v", err)
+	}
+
+	packet := lastPacketByID(sender.packets, protocol.C2SUseEntity)
+	if packet == nil {
+		t.Fatalf("missing packet ID %d", protocol.C2SUseEntity)
+	}
+	gotTarget, action, hand, sneaking := parseUseEntityPayload(t, packet)
+	if hand == nil {
+		t.Fatalf("hand is nil, want 0")
+	}
+	if gotTarget != 11 || action != protocol.UseEntityActionInteract || *hand != 0 || !sneaking {
+		t.Fatalf("unexpected use_entity payload target=%d action=%d hand=%d sneaking=%v", gotTarget, action, *hand, sneaking)
+	}
+}
+
+func TestBodyTickBreakStateMachine(t *testing.T) {
+	store := newMockBlockStore()
+	addFloor(store, -4, 4, -4, 4, -1)
+	sender := &mockPacketSender{}
+	b := New(world.Position{X: 0.5, Y: 0.0, Z: 0.5}, true, sender, store, nil)
+
+	a := physics.BlockPos{X: 1, Y: 64, Z: 2}
+	bPos := physics.BlockPos{X: 2, Y: 64, Z: 2}
+
+	if err := b.Tick(InputState{Attack: true, BreakTarget: &a}); err != nil {
+		t.Fatalf("first Tick failed: %v", err)
+	}
+	if err := b.Tick(InputState{Attack: true, BreakTarget: &a}); err != nil {
+		t.Fatalf("second Tick failed: %v", err)
+	}
+	if err := b.Tick(InputState{Attack: true, BreakTarget: &bPos}); err != nil {
+		t.Fatalf("third Tick failed: %v", err)
+	}
+	if err := b.Tick(InputState{}); err != nil {
+		t.Fatalf("fourth Tick failed: %v", err)
+	}
+
+	type digEvent struct {
+		status int32
+		x      int32
+		y      int32
+		z      int32
+		face   int8
+	}
+	var events []digEvent
+	for _, packet := range sender.packets {
+		if packet.ID != protocol.C2SBlockDig {
+			continue
+		}
+		status, x, y, z, face, _ := parseBlockDigPayload(t, packet)
+		events = append(events, digEvent{status: status, x: x, y: y, z: z, face: face})
+	}
+
+	if len(events) != 4 {
+		t.Fatalf("block_dig count = %d, want 4", len(events))
+	}
+	if events[0].status != protocol.BlockDigStatusStarted || events[0].x != 1 || events[0].z != 2 {
+		t.Fatalf("event[0] = %+v", events[0])
+	}
+	if events[1].status != protocol.BlockDigStatusCancelled || events[1].x != 1 || events[1].z != 2 {
+		t.Fatalf("event[1] = %+v", events[1])
+	}
+	if events[2].status != protocol.BlockDigStatusStarted || events[2].x != 2 || events[2].z != 2 {
+		t.Fatalf("event[2] = %+v", events[2])
+	}
+	if events[3].status != protocol.BlockDigStatusCancelled || events[3].x != 2 || events[3].z != 2 {
+		t.Fatalf("event[3] = %+v", events[3])
+	}
+}
+
+func TestBodyTickBreakHoldDoesNotResendStart(t *testing.T) {
+	store := newMockBlockStore()
+	addFloor(store, -4, 4, -4, 4, -1)
+	sender := &mockPacketSender{}
+	b := New(world.Position{X: 0.5, Y: 0.0, Z: 0.5}, true, sender, store, nil)
+
+	target := physics.BlockPos{X: 3, Y: 64, Z: 3}
+	if err := b.Tick(InputState{Attack: true, BreakTarget: &target}); err != nil {
+		t.Fatalf("first tick failed: %v", err)
+	}
+	if err := b.Tick(InputState{Attack: true, BreakTarget: &target}); err != nil {
+		t.Fatalf("second tick failed: %v", err)
+	}
+	if err := b.Tick(InputState{}); err != nil {
+		t.Fatalf("third tick failed: %v", err)
+	}
+
+	var statuses []int32
+	for _, packet := range sender.packets {
+		if packet.ID != protocol.C2SBlockDig {
+			continue
+		}
+		status, _, _, _, _, _ := parseBlockDigPayload(t, packet)
+		statuses = append(statuses, status)
+	}
+
+	if len(statuses) != 2 {
+		t.Fatalf("block_dig count = %d, want 2", len(statuses))
+	}
+	if statuses[0] != protocol.BlockDigStatusStarted {
+		t.Fatalf("first status = %d, want %d", statuses[0], protocol.BlockDigStatusStarted)
+	}
+	if statuses[1] != protocol.BlockDigStatusCancelled {
+		t.Fatalf("second status = %d, want %d", statuses[1], protocol.BlockDigStatusCancelled)
+	}
+}
+
+func TestBodyTickBreakClearedTargetCancels(t *testing.T) {
+	store := newMockBlockStore()
+	addFloor(store, -4, 4, -4, 4, -1)
+
+	sender := &mockPacketSender{}
+	b := New(world.Position{X: 0.5, Y: 0.0, Z: 0.5}, true, sender, store, nil)
+
+	target := physics.BlockPos{X: 0, Y: 64, Z: 1}
+	if err := b.Tick(InputState{Attack: true, BreakTarget: &target}); err != nil {
+		t.Fatalf("first tick failed: %v", err)
+	}
+	if err := b.Tick(InputState{Attack: true}); err != nil {
+		t.Fatalf("second tick failed: %v", err)
+	}
+
+	var statuses []int32
+	for _, packet := range sender.packets {
+		if packet.ID != protocol.C2SBlockDig {
+			continue
+		}
+		status, _, _, _, _, _ := parseBlockDigPayload(t, packet)
+		statuses = append(statuses, status)
+	}
+
+	if len(statuses) != 2 {
+		t.Fatalf("block_dig count = %d, want 2", len(statuses))
+	}
+	if statuses[0] != protocol.BlockDigStatusStarted {
+		t.Fatalf("first status = %d, want started", statuses[0])
+	}
+	if statuses[1] != protocol.BlockDigStatusCancelled {
+		t.Fatalf("second status = %d, want cancelled", statuses[1])
 	}
 }

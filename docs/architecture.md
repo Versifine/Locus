@@ -70,10 +70,18 @@ Body 负责把按键信号转成物理位置变化和协议包。
 ## 记忆架构
 
 ```
-工作记忆（Working Memory）  ← WorldState Snapshot，每 tick 刷新
-短期记忆（Short-term Memory）← 事件摘要列表，<memory> 标签压缩
-长期记忆（Long-term Memory） ← 待实现，持久化存储
+工作记忆（Working Memory）  ← Tool Use 当前消息链（单次 Thinker 内）
+短期记忆（Short-term Memory）← EpisodeLog（最近经历，自动开单-闭单）
+长期记忆（Long-term Memory） ← MemoryStore（remember 写入 / recall 检索）
 ```
+
+### 长期记忆（v0.6c）
+
+- 条目结构：`content + tags + pos + tick + embedding + hit_count + last_hit_tick`
+- 写入方式：LLM 显式 `remember(content, tags?)` + Agent 规则兜底自动记忆
+- 检索方式：`recall(query, filter?)` 混合检索（关键词 + embedding）
+- 返回格式（开发期）：`[{content, tags, tick, score}]`
+- 时序一致性：Event/Episode/Memory 统一使用单调 TickID
 
 ## 目录结构
 
