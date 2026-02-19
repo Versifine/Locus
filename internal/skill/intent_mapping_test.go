@@ -26,6 +26,42 @@ func TestMapIntentToBehaviorGoTo(t *testing.T) {
 	}
 }
 
+func TestMapIntentToBehaviorFollowSprint(t *testing.T) {
+	called := false
+	deps := BehaviorDeps{
+		Follow: func(entityID int32, distance float64, sprint bool) BehaviorFunc {
+			called = true
+			if entityID != 42 {
+				t.Fatalf("entityID=%d want 42", entityID)
+			}
+			if distance != 4.5 {
+				t.Fatalf("distance=%v want 4.5", distance)
+			}
+			if !sprint {
+				t.Fatal("expected sprint=true")
+			}
+			return func(BehaviorCtx) error { return nil }
+		},
+	}
+
+	_, channels, priority, err := MapIntentToBehavior(Intent{
+		Action: "follow",
+		Params: map[string]any{"entity_id": 42, "distance": 4.5, "sprint": true},
+	}, deps)
+	if err != nil {
+		t.Fatalf("MapIntentToBehavior error: %v", err)
+	}
+	if !called {
+		t.Fatal("expected follow factory to be called")
+	}
+	if priority != PriorityFollow {
+		t.Fatalf("priority=%d want %d", priority, PriorityFollow)
+	}
+	if len(channels) != 2 || channels[0] != ChannelLegs || channels[1] != ChannelHead {
+		t.Fatalf("channels=%v", channels)
+	}
+}
+
 func TestMapIntentToBehaviorLookAtEntity(t *testing.T) {
 	deps := BehaviorDeps{
 		LookAtEntity: func(entityID int32) BehaviorFunc {

@@ -224,10 +224,9 @@ func TestGoToRecoversAfterPushBack(t *testing.T) {
 	}
 }
 
-func TestFollowStopsWhenEntityMissing(t *testing.T) {
+func TestFollowStopsAfterGracePeriodWhenEntityMissing(t *testing.T) {
 	blocks := newFlatBlocks(-2, 8, -2, 2, 0)
-	fn := Follow(42, 2.5)
-	h := startBehaviorHarness(t, fn, blocks, world.Snapshot{
+	h := startBehaviorHarness(t, Follow(42, 2.5, false), blocks, world.Snapshot{
 		Position: world.Position{X: 0, Y: 1, Z: 0},
 		Entities: []world.Entity{{EntityID: 42, X: 5, Y: 1, Z: 0}},
 	})
@@ -236,10 +235,94 @@ func TestFollowStopsWhenEntityMissing(t *testing.T) {
 	if out.Forward == nil || !*out.Forward {
 		t.Fatal("expected follow to move toward target")
 	}
-	h.pushSnapshot(world.Snapshot{Position: world.Position{X: 0.5, Y: 1, Z: 0}})
+
+	lostSnap := world.Snapshot{Position: world.Position{X: 0.5, Y: 1, Z: 0}}
+	h.pushSnapshot(lostSnap)
+	for i := 0; i < followLostGraceTicks; i++ {
+		waitOut := h.pullOutput()
+		if waitOut.Forward != nil || waitOut.Jump != nil || waitOut.Sprint != nil {
+			t.Fatal("expected idle output while waiting for missing target")
+		}
+		h.pushSnapshot(lostSnap)
+	}
 
 	if err := h.waitDone(); err != nil {
 		t.Fatalf("follow returned error: %v", err)
+	}
+}
+
+func TestFollowRecoversWhenEntityReturnsWithinGracePeriod(t *testing.T) {
+	blocks := newFlatBlocks(-2, 8, -2, 2, 0)
+	h := startBehaviorHarness(t, Follow(42, 2.5, false), blocks, world.Snapshot{
+		Position: world.Position{X: 0, Y: 1, Z: 0},
+		Entities: []world.Entity{{EntityID: 42, X: 5, Y: 1, Z: 0}},
+	})
+
+	out := h.pullOutput()
+	if out.Forward == nil || !*out.Forward {
+		t.Fatal("expected follow to move toward target")
+	}
+
+	h.pushSnapshot(world.Snapshot{Position: world.Position{X: 0.5, Y: 1, Z: 0}})
+	waitOut := h.pullOutput()
+	if waitOut.Forward != nil || waitOut.Jump != nil || waitOut.Sprint != nil {
+		t.Fatal("expected no movement while target is temporarily missing")
+	}
+
+	h.pushSnapshot(world.Snapshot{
+		Position: world.Position{X: 0.5, Y: 1, Z: 0},
+		Entities: []world.Entity{{EntityID: 42, X: 4, Y: 1, Z: 0}},
+	})
+	recovered := h.pullOutput()
+	if recovered.Forward == nil || !*recovered.Forward {
+		t.Fatal("expected follow to resume movement after target returns")
+	}
+
+	h.cancel()
+	if err := h.waitDone(); err != nil {
+		t.Fatalf("follow recovery returned error: %v", err)
+	}
+}
+
+func TestFollowPropagatesNavigatorJumpAndSprint(t *testing.T) {
+	blocks := newMockBlocks()
+	for _, pos := range []skill.BlockPos{
+		{X: 0, Y: 0, Z: 0},
+		{X: 1, Y: 0, Z: 0},
+		{X: 2, Y: 1, Z: 0},
+		{X: 3, Y: 1, Z: 0},
+	} {
+		blocks.SetState(pos, 1)
+	}
+
+	h := startBehaviorHarness(t, Follow(42, 0.5, true), blocks, world.Snapshot{
+		Position: world.Position{X: 0, Y: 1, Z: 0},
+		Entities: []world.Entity{{EntityID: 42, X: 3, Y: 2, Z: 0}},
+	})
+
+	out1 := h.pullOutput()
+	if out1.Forward == nil || !*out1.Forward {
+		t.Fatal("expected follow to move toward elevated target")
+	}
+	if out1.Sprint == nil || !*out1.Sprint {
+		t.Fatal("expected sprint output to propagate from navigator")
+	}
+
+	h.pushSnapshot(world.Snapshot{
+		Position: world.Position{X: 1, Y: 1, Z: 0},
+		Entities: []world.Entity{{EntityID: 42, X: 3, Y: 2, Z: 0}},
+	})
+	out2 := h.pullOutput()
+	if out2.Jump == nil || !*out2.Jump {
+		t.Fatal("expected jump output to propagate from navigator")
+	}
+	if out2.Sprint == nil || !*out2.Sprint {
+		t.Fatal("expected sprint output on climb tick")
+	}
+
+	h.cancel()
+	if err := h.waitDone(); err != nil {
+		t.Fatalf("follow jump/sprint returned error: %v", err)
 	}
 }
 
@@ -250,7 +333,7 @@ func TestFollowUsesPathAroundObstacle(t *testing.T) {
 		blocks.SetState(skill.BlockPos{X: 1, Y: 2, Z: z}, 1)
 	}
 
-	h := startBehaviorHarness(t, Follow(42, 2.5), blocks, world.Snapshot{
+	h := startBehaviorHarness(t, Follow(42, 2.5, false), blocks, world.Snapshot{
 		Position: world.Position{X: 0, Y: 1, Z: 0},
 		Entities: []world.Entity{{EntityID: 42, X: 5, Y: 1, Z: 0}},
 	})

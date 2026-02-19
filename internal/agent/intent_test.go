@@ -24,6 +24,30 @@ func TestParseIntentGoTo(t *testing.T) {
 	}
 }
 
+func TestParseIntentFollowSprint(t *testing.T) {
+	intent, err := ParseIntent(map[string]any{
+		"action":    "follow",
+		"entity_id": 42,
+		"distance":  2.5,
+		"sprint":    true,
+	})
+	if err != nil {
+		t.Fatalf("ParseIntent error: %v", err)
+	}
+	if intent.Action != "follow" {
+		t.Fatalf("action=%q want follow", intent.Action)
+	}
+	if intent.Params["entity_id"] != 42 {
+		t.Fatalf("entity_id=%v want 42", intent.Params["entity_id"])
+	}
+	if intent.Params["distance"] != 2.5 {
+		t.Fatalf("distance=%v want 2.5", intent.Params["distance"])
+	}
+	if intent.Params["sprint"] != true {
+		t.Fatalf("sprint=%v want true", intent.Params["sprint"])
+	}
+}
+
 func TestParseIntentLookAtEntity(t *testing.T) {
 	intent, err := ParseIntent(map[string]any{"action": "look_at", "entity_id": 42})
 	if err != nil {

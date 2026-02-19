@@ -22,7 +22,7 @@ type Intent struct {
 type BehaviorDeps struct {
 	Idle         func() BehaviorFunc
 	GoTo         func(x, y, z int, sprint bool) BehaviorFunc
-	Follow       func(entityID int32, distance float64) BehaviorFunc
+	Follow       func(entityID int32, distance float64, sprint bool) BehaviorFunc
 	LookAtEntity func(entityID int32) BehaviorFunc
 	LookAtPos    func(target Vec3) BehaviorFunc
 	Attack       func(entityID int32) BehaviorFunc
@@ -69,7 +69,8 @@ func MapIntentToBehavior(intent Intent, deps BehaviorDeps) (BehaviorFunc, []Chan
 		if !ok || distance <= 0 {
 			distance = 3
 		}
-		return deps.Follow(entityID, distance), []Channel{ChannelLegs, ChannelHead}, PriorityFollow, nil
+		sprint, _ := asBool(intent.Params["sprint"])
+		return deps.Follow(entityID, distance, sprint), []Channel{ChannelLegs, ChannelHead}, PriorityFollow, nil
 	case "look_at":
 		if entityRaw, ok := intent.Params["entity_id"]; ok {
 			if deps.LookAtEntity == nil {

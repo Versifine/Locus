@@ -7,7 +7,9 @@ import (
 	"github.com/Versifine/locus/internal/world"
 )
 
-func Follow(entityID int32, distance float64) skill.BehaviorFunc {
+const followLostGraceTicks = 40
+
+func Follow(entityID int32, distance float64, sprint bool) skill.BehaviorFunc {
 	if distance <= 0 {
 		distance = 3
 	}
@@ -25,7 +27,22 @@ func Follow(entityID int32, distance float64) skill.BehaviorFunc {
 		for {
 			entity := skill.FindEntity(snap, entityID)
 			if entity == nil {
-				return nil
+				nav.Invalidate()
+				hasLastApproach = false
+
+				lostTicks := 0
+				for entity == nil && lostTicks < followLostGraceTicks {
+					next, ok := skill.Step(bctx, skill.PartialInput{})
+					if !ok {
+						return nil
+					}
+					snap = next
+					entity = skill.FindEntity(snap, entityID)
+					lostTicks++
+				}
+				if entity == nil {
+					return nil
+				}
 			}
 
 			target := skill.Vec3{X: entity.X, Y: entity.Y, Z: entity.Z}
@@ -50,11 +67,13 @@ func Follow(entityID int32, distance float64) skill.BehaviorFunc {
 					hasLastApproach = true
 				}
 
-				move, _, err := nav.Tick(snap, approach, bctx.Blocks, false)
+				move, _, err := nav.Tick(snap, approach, bctx.Blocks, sprint)
 				if err != nil {
 					return err
 				}
 				partial.Forward = move.Forward
+				partial.Jump = move.Jump
+				partial.Sprint = move.Sprint
 				if move.Yaw != nil {
 					partial.Yaw = move.Yaw
 				}

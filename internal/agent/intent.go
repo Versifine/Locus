@@ -47,6 +47,11 @@ func ParseIntent(input map[string]any) (Intent, error) {
 				params["distance"] = f
 			}
 		}
+		if v, ok := input["sprint"]; ok {
+			if b, ok := asBool(v); ok {
+				params["sprint"] = b
+			}
+		}
 	case "look_at":
 		if _, ok := input["entity_id"]; ok {
 			if err := requireIntParam(input, params, "entity_id"); err != nil {

@@ -39,10 +39,10 @@ func GoToSpec(x, y, z int, sprint bool) Spec {
 	}
 }
 
-func FollowSpec(entityID int32, distance float64) Spec {
+func FollowSpec(entityID int32, distance float64, sprint bool) Spec {
 	return Spec{
 		Name:     "follow",
-		Fn:       Follow(entityID, distance),
+		Fn:       Follow(entityID, distance, sprint),
 		Channels: []skill.Channel{skill.ChannelLegs, skill.ChannelHead},
 		Priority: PriorityFollow,
 	}

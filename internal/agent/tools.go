@@ -102,6 +102,7 @@ var ActionTools = []ToolDef{
 		Parameters: map[string]ParamDef{
 			"entity_id": {Type: "integer", Required: true, Description: "实体 ID"},
 			"distance":  {Type: "number", Description: "保持距离（默认 3）"},
+			"sprint":    {Type: "boolean", Description: "是否疾跑跟随"},
 		},
 	},
 	{
