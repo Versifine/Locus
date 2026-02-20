@@ -391,6 +391,16 @@ func (b *Body) syncBreakTarget(input InputState, now time.Time) error {
 	active := b.activeBreakTarget
 	b.mu.Unlock()
 
+	if input.BreakFinished && input.BreakTarget != nil && active != nil && sameBlockPos(*active, *input.BreakTarget) {
+		if err := b.sendBlockDig(protocol.BlockDigStatusFinished, *active, 1); err != nil {
+			return err
+		}
+		b.mu.Lock()
+		b.activeBreakTarget = nil
+		b.mu.Unlock()
+		return nil
+	}
+
 	if !wantsBreak {
 		if active != nil {
 			if err := b.sendBlockDig(protocol.BlockDigStatusCancelled, *active, 1); err != nil {

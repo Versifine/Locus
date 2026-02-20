@@ -610,6 +610,52 @@ func TestBodyTickBreakHoldDoesNotResendStart(t *testing.T) {
 	}
 }
 
+func TestBodyTickBreakFinishedSendsFinishAndClearsActiveTarget(t *testing.T) {
+	store := newMockBlockStore()
+	addFloor(store, -4, 4, -4, 4, -1)
+	sender := &mockPacketSender{}
+	b := New(world.Position{X: 0.5, Y: 0.0, Z: 0.5}, true, sender, store, nil)
+
+	target := physics.BlockPos{X: 2, Y: 64, Z: 1}
+	if err := b.Tick(InputState{Attack: true, BreakTarget: &target}); err != nil {
+		t.Fatalf("first tick failed: %v", err)
+	}
+	if err := b.Tick(InputState{Attack: true, BreakTarget: &target, BreakFinished: true}); err != nil {
+		t.Fatalf("second tick failed: %v", err)
+	}
+	if err := b.Tick(InputState{Attack: true, BreakTarget: &target}); err != nil {
+		t.Fatalf("third tick failed: %v", err)
+	}
+	if err := b.Tick(InputState{}); err != nil {
+		t.Fatalf("fourth tick failed: %v", err)
+	}
+
+	var statuses []int32
+	for _, packet := range sender.packets {
+		if packet.ID != protocol.C2SBlockDig {
+			continue
+		}
+		status, _, _, _, _, _ := parseBlockDigPayload(t, packet)
+		statuses = append(statuses, status)
+	}
+
+	if len(statuses) != 4 {
+		t.Fatalf("block_dig count = %d, want 4", len(statuses))
+	}
+	if statuses[0] != protocol.BlockDigStatusStarted {
+		t.Fatalf("status[0] = %d, want started", statuses[0])
+	}
+	if statuses[1] != protocol.BlockDigStatusFinished {
+		t.Fatalf("status[1] = %d, want finished", statuses[1])
+	}
+	if statuses[2] != protocol.BlockDigStatusStarted {
+		t.Fatalf("status[2] = %d, want started", statuses[2])
+	}
+	if statuses[3] != protocol.BlockDigStatusCancelled {
+		t.Fatalf("status[3] = %d, want cancelled", statuses[3])
+	}
+}
+
 func TestBodyTickBreakClearedTargetCancels(t *testing.T) {
 	store := newMockBlockStore()
 	addFloor(store, -4, 4, -4, 4, -1)

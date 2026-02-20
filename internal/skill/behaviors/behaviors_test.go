@@ -442,11 +442,45 @@ func TestMineSetsSlotAndBreakTarget(t *testing.T) {
 	if out.Attack == nil || !*out.Attack || out.BreakTarget == nil {
 		t.Fatal("expected mine attack output")
 	}
+	if out.BreakFinished != nil && *out.BreakFinished {
+		t.Fatal("unexpected break finished on first tick")
+	}
 
 	blocks.SetState(target, 0)
 	h.pushSnapshot(world.Snapshot{Position: world.Position{X: 0, Y: 1, Z: 0}})
 	if err := h.waitDone(); err != nil {
 		t.Fatalf("mine returned error: %v", err)
+	}
+}
+
+func TestMineMarksBreakFinishedAfterEstimatedTicks(t *testing.T) {
+	blocks := newFlatBlocks(-2, 4, -2, 2, 0)
+	target := skill.BlockPos{X: 1, Y: 1, Z: 0}
+	blocks.SetState(target, 1)
+
+	snap := world.Snapshot{Position: world.Position{X: 0, Y: 1, Z: 0}}
+	h := startBehaviorHarness(t, Mine(target, nil), blocks, snap)
+
+	for tick := 1; tick < mineEstimatedBreakTicks; tick++ {
+		out := h.pullOutput()
+		if out.BreakFinished != nil && *out.BreakFinished {
+			t.Fatalf("unexpected break finished at tick %d", tick)
+		}
+		h.pushSnapshot(snap)
+	}
+
+	out := h.pullOutput()
+	if out.BreakFinished == nil || !*out.BreakFinished {
+		t.Fatal("expected mine to mark BreakFinished after estimated break ticks")
+	}
+	if out.BreakTarget == nil {
+		t.Fatal("expected break target when finishing break")
+	}
+
+	blocks.SetState(target, 0)
+	h.pushSnapshot(snap)
+	if err := h.waitDone(); err != nil {
+		t.Fatalf("mine break-finished test returned error: %v", err)
 	}
 }
 

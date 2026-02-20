@@ -7,6 +7,7 @@ import (
 )
 
 const mineReachDistance = 4.5
+const mineEstimatedBreakTicks = 20
 
 func Mine(target skill.BlockPos, slot *int8) skill.BehaviorFunc {
 	return func(bctx skill.BehaviorCtx) error {
@@ -17,6 +18,7 @@ func Mine(target skill.BlockPos, slot *int8) skill.BehaviorFunc {
 		snap := bctx.Snapshot()
 		nav := newPathNavigator(32, 1.0)
 		slotSent := false
+		breakingTicks := 0
 
 		for {
 			if isAirAt(bctx.Blocks, target) {
@@ -35,7 +37,13 @@ func Mine(target skill.BlockPos, slot *int8) skill.BehaviorFunc {
 				partial.Pitch = float32Ptr(lookPitch)
 				partial.Attack = boolPtr(true)
 				partial.BreakTarget = blockPosPtr(target)
+				breakingTicks++
+				if breakingTicks >= mineEstimatedBreakTicks {
+					partial.BreakFinished = boolPtr(true)
+					breakingTicks = 0
+				}
 			} else {
+				breakingTicks = 0
 				approach, ok := nearestApproach(target, snap.Position, bctx.Blocks)
 				if !ok {
 					return errors.New("mine approach not found")
@@ -47,6 +55,7 @@ func Mine(target skill.BlockPos, slot *int8) skill.BehaviorFunc {
 				}
 				partial.Forward = move.Forward
 				partial.Yaw = move.Yaw
+				partial.Jump = move.Jump
 				partial.Sprint = move.Sprint
 			}
 

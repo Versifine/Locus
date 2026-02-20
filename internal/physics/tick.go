@@ -20,6 +20,7 @@ type InputState struct {
 	Use            bool
 	AttackTarget   *int32
 	BreakTarget    *BlockPos
+	BreakFinished  bool
 	PlaceTarget    *PlaceAction
 	InteractTarget *int32
 	HotbarSlot     *int8

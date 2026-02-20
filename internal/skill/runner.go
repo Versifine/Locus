@@ -423,6 +423,9 @@ func applyPartialByChannels(out *body.InputState, p PartialInput, channels map[C
 			v := *p.BreakTarget
 			out.BreakTarget = &v
 		}
+		if p.BreakFinished != nil {
+			out.BreakFinished = *p.BreakFinished
+		}
 		if p.PlaceTarget != nil {
 			v := *p.PlaceTarget
 			out.PlaceTarget = &v
