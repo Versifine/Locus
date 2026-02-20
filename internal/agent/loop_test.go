@@ -173,3 +173,40 @@ func TestStartThinkerTimeout(t *testing.T) {
 	}
 	t.Fatal("thinker should stop after timeout")
 }
+
+func TestHeadInterpolationProgressesByConfiguredSpeed(t *testing.T) {
+	a := &LoopAgent{}
+	a.syncHeadCurrent(0, 0)
+	a.setHead(90, 0)
+
+	yaw, pitch := a.interpolateHead()
+	if yaw != 15 || pitch != 0 {
+		t.Fatalf("first interpolate yaw/pitch=%.2f/%.2f want 15/0", yaw, pitch)
+	}
+
+	for i := 0; i < 5; i++ {
+		yaw, pitch = a.interpolateHead()
+	}
+	if yaw != 90 || pitch != 0 {
+		t.Fatalf("after six ticks yaw/pitch=%.2f/%.2f want 90/0", yaw, pitch)
+	}
+	if a.headInterpolating {
+		t.Fatal("expected interpolation to complete at target")
+	}
+}
+
+func TestHeadInterpolationWrapsAcross180(t *testing.T) {
+	a := &LoopAgent{}
+	a.syncHeadCurrent(170, 0)
+	a.setHead(-170, 0)
+
+	yaw, _ := a.interpolateHead()
+	if yaw != -175 {
+		t.Fatalf("wrapped first step yaw=%.2f want -175", yaw)
+	}
+
+	yaw, _ = a.interpolateHead()
+	if yaw != -170 {
+		t.Fatalf("wrapped second step yaw=%.2f want -170", yaw)
+	}
+}

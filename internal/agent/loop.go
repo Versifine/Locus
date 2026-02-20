@@ -17,18 +17,20 @@ import (
 )
 
 const (
-	loopTickInterval       = 50 * time.Millisecond
-	thinkCooldown          = 800 * time.Millisecond
-	thinkIdleInterval      = 6 * time.Second
-	thinkEventThreshold    = 4
-	thinkerDefaultTimeout  = 120 * time.Second
-	episodeOpenTimeout     = 5 * time.Minute
-	eventInChanBuffer      = 256
-	thinkerActionChanSize  = 64
-	waitForIdlePollTick    = 50 * time.Millisecond
-	defaultWaitForIdleTime = 10 * time.Second
-	pendingEndTTLInTicks   = 12000
-	pendingEndMaxEntries   = 256
+	loopTickInterval        = 50 * time.Millisecond
+	thinkCooldown           = 800 * time.Millisecond
+	thinkIdleInterval       = 6 * time.Second
+	thinkEventThreshold     = 4
+	thinkerDefaultTimeout   = 120 * time.Second
+	episodeOpenTimeout      = 5 * time.Minute
+	eventInChanBuffer       = 256
+	thinkerActionChanSize   = 64
+	waitForIdlePollTick     = 50 * time.Millisecond
+	defaultWaitForIdleTime  = 10 * time.Second
+	pendingEndTTLInTicks    = 12000
+	pendingEndMaxEntries    = 256
+	defaultHeadSpeedDegTick = 15.0
+	headDoneThresholdDeg    = 1.0
 )
 
 type incomingEvent struct {
@@ -83,10 +85,13 @@ type LoopAgent struct {
 	thinkCtxEvents    []BufferedEvent
 	thinkCtxRuns      map[uint64]string
 
-	headMu       sync.Mutex
-	headYaw      float32
-	headPitch    float32
-	headOverride bool
+	headMu            sync.Mutex
+	headTargetYaw     float32
+	headTargetPitch   float32
+	headCurrentYaw    float32
+	headCurrentPitch  float32
+	headInterpolating bool
+	headSpeed         float32
 
 	tickCounter atomic.Uint64
 }
@@ -126,6 +131,7 @@ func NewLoopAgent(
 		episodeByRunID:     map[uint64]string{},
 		pendingBehaviorEnd: map[uint64]pendingBehaviorEnd{},
 		thinkCtxRuns:       map[uint64]string{},
+		headSpeed:          defaultHeadSpeedDegTick,
 	}
 
 	a.toolExecutor = ToolExecutor{
@@ -152,23 +158,52 @@ func (a *LoopAgent) setHead(yaw, pitch float32) {
 		return
 	}
 	a.headMu.Lock()
-	a.headYaw = yaw
-	a.headPitch = pitch
-	a.headOverride = true
+	if a.headSpeed <= 0 {
+		a.headSpeed = defaultHeadSpeedDegTick
+	}
+	a.headTargetYaw = yaw
+	a.headTargetPitch = pitch
+	a.headInterpolating = true
 	a.headMu.Unlock()
 }
 
-func (a *LoopAgent) consumeHeadOverride() (yaw, pitch float32, ok bool) {
+func (a *LoopAgent) syncHeadCurrent(yaw, pitch float32) {
 	if a == nil {
-		return 0, 0, false
+		return
+	}
+	a.headMu.Lock()
+	a.headCurrentYaw = yaw
+	a.headCurrentPitch = pitch
+	if !a.headInterpolating {
+		a.headTargetYaw = yaw
+		a.headTargetPitch = pitch
+	}
+	a.headMu.Unlock()
+}
+
+func (a *LoopAgent) interpolateHead() (yaw, pitch float32) {
+	if a == nil {
+		return 0, 0
 	}
 	a.headMu.Lock()
 	defer a.headMu.Unlock()
-	if !a.headOverride {
-		return 0, 0, false
+
+	if a.headSpeed <= 0 {
+		a.headSpeed = defaultHeadSpeedDegTick
 	}
-	a.headOverride = false
-	return a.headYaw, a.headPitch, true
+
+	if a.headInterpolating {
+		a.headCurrentYaw = lerpAngle(a.headCurrentYaw, a.headTargetYaw, a.headSpeed)
+		a.headCurrentPitch = lerpAngle(a.headCurrentPitch, a.headTargetPitch, a.headSpeed)
+		if angleDiff(a.headCurrentYaw, a.headTargetYaw) < headDoneThresholdDeg &&
+			angleDiff(a.headCurrentPitch, a.headTargetPitch) < headDoneThresholdDeg {
+			a.headCurrentYaw = a.headTargetYaw
+			a.headCurrentPitch = a.headTargetPitch
+			a.headInterpolating = false
+		}
+	}
+
+	return a.headCurrentYaw, a.headCurrentPitch
 }
 
 func (a *LoopAgent) SetInventory(inv InventoryProvider) {
@@ -188,6 +223,8 @@ func (a *LoopAgent) Start(ctx context.Context) error {
 	}
 
 	go a.forwardBehaviorEnds(ctx)
+	initial := a.stateProvider.GetState()
+	a.syncHeadCurrent(initial.Position.Yaw, initial.Position.Pitch)
 
 	ticker := time.NewTicker(loopTickInterval)
 	defer ticker.Stop()
@@ -210,7 +247,10 @@ func (a *LoopAgent) tick(ctx context.Context, snap world.Snapshot) {
 	a.tickCounter.Add(1)
 
 	input := a.runner.Tick(snap)
-	if yaw, pitch, ok := a.consumeHeadOverride(); ok && !a.runner.OwnsChannel(skill.ChannelHead) {
+	if a.runner.OwnsChannel(skill.ChannelHead) {
+		a.syncHeadCurrent(snap.Position.Yaw, snap.Position.Pitch)
+	} else {
+		yaw, pitch := a.interpolateHead()
 		input.Yaw = yaw
 		input.Pitch = pitch
 	}
