@@ -3,8 +3,9 @@ package agent
 import (
 	"math"
 	"sort"
-	"strings"
 )
+
+const maxRaycastTransparentPassThrough = 8
 
 type Vec3 struct {
 	X float64
@@ -65,11 +66,13 @@ func (c Camera) VisibleSurfaceBlocks(eyePos Vec3, yaw, pitch float64, blocks Blo
 			pitchOffset := -((float64(y)+0.5)/float64(c.Height) - 0.5) * verticalFOV
 
 			dir := directionFromYawPitch(yaw+yawOffset, pitch+pitchOffset)
-			hit, ok := ddaFirstHit(eyePos, dir, c.MaxDist, blocks)
-			if !ok {
-				continue
+			hit, passedThrough, ok := ddaFirstHit(eyePos, dir, c.MaxDist, blocks)
+			for _, through := range passedThrough {
+				seen[through.Pos] = through
 			}
-			seen[hit.Pos] = hit
+			if ok {
+				seen[hit.Pos] = hit
+			}
 		}
 	}
 
@@ -102,9 +105,9 @@ func directionFromYawPitch(yaw, pitch float64) Vec3 {
 	}
 }
 
-func ddaFirstHit(origin Vec3, dir Vec3, maxDist float64, blocks BlockAccess) (BlockInfo, bool) {
+func ddaFirstHit(origin Vec3, dir Vec3, maxDist float64, blocks BlockAccess) (BlockInfo, []BlockInfo, bool) {
 	if nearlyZero(dir.X) && nearlyZero(dir.Y) && nearlyZero(dir.Z) {
-		return BlockInfo{}, false
+		return BlockInfo{}, nil, false
 	}
 
 	x := int(math.Floor(origin.X))
@@ -115,15 +118,25 @@ func ddaFirstHit(origin Vec3, dir Vec3, maxDist float64, blocks BlockAccess) (Bl
 	stepY, tMaxY, tDeltaY := ddaAxis(origin.Y, dir.Y, y)
 	stepZ, tMaxZ, tDeltaZ := ddaAxis(origin.Z, dir.Z, z)
 
+	passedThrough := make([]BlockInfo, 0, 4)
 	distance := 0.0
 	for distance <= maxDist {
 		stateID, ok := blocks.GetBlockState(x, y, z)
-		if ok && !isAirState(blocks, stateID) {
-			name, _ := blocks.GetBlockNameByStateID(stateID)
-			if strings.TrimSpace(name) == "" {
-				name = "state_" + itoa(int(stateID))
+		if ok {
+			if !isAirState(blocks, stateID) {
+				name, _ := blocks.GetBlockNameByStateID(stateID)
+				if normalizeBlockName(name) == "" {
+					name = "state_" + itoa(int(stateID))
+				}
+				info := BlockInfo{Type: name, Pos: [3]int{x, y, z}}
+				if isTransparent(blocks, stateID) {
+					if len(passedThrough) < maxRaycastTransparentPassThrough {
+						passedThrough = append(passedThrough, info)
+					}
+				} else {
+					return info, passedThrough, true
+				}
 			}
-			return BlockInfo{Type: name, Pos: [3]int{x, y, z}}, true
 		}
 
 		switch {
@@ -142,7 +155,7 @@ func ddaFirstHit(origin Vec3, dir Vec3, maxDist float64, blocks BlockAccess) (Bl
 		}
 	}
 
-	return BlockInfo{}, false
+	return BlockInfo{}, passedThrough, false
 }
 
 func ddaAxis(origin, dir float64, cell int) (step int, tMax float64, tDelta float64) {
@@ -170,9 +183,9 @@ func isAirState(blocks BlockAccess, stateID int32) bool {
 	if !ok {
 		return false
 	}
-	name = strings.ToLower(strings.TrimSpace(name))
+	name = normalizeBlockName(name)
 	switch name {
-	case "air", "cave_air", "void_air", "cave air", "void air", "minecraft:air", "minecraft:cave_air", "minecraft:void_air":
+	case "air", "cave_air", "void_air":
 		return true
 	default:
 		return false
