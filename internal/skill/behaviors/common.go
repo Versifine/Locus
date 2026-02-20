@@ -26,6 +26,18 @@ func int32Ptr(v int32) *int32 { return &v }
 
 func int8Ptr(v int8) *int8 { return &v }
 
+func durationCheck(durationMs int) func() bool {
+	if durationMs <= 0 {
+		return func() bool { return false }
+	}
+	maxTicks := (durationMs + 49) / 50
+	ticks := 0
+	return func() bool {
+		ticks++
+		return ticks >= maxTicks
+	}
+}
+
 func blockPosPtr(v skill.BlockPos) *physics.BlockPos {
 	b := physics.BlockPos{X: v.X, Y: v.Y, Z: v.Z}
 	return &b

@@ -12,7 +12,7 @@ const (
 	attackCooldownTicks = 10
 )
 
-func Attack(entityID int32) skill.BehaviorFunc {
+func Attack(entityID int32, durationMs int) skill.BehaviorFunc {
 	return func(bctx skill.BehaviorCtx) error {
 		if bctx.Blocks == nil {
 			return errors.New("attack requires block access")
@@ -24,6 +24,7 @@ func Attack(entityID int32) skill.BehaviorFunc {
 		nav := newPathNavigator(32, 1.0)
 		var lastApproach skill.BlockPos
 		hasLastApproach := false
+		timedOut := durationCheck(durationMs)
 
 		for {
 			ticks++
@@ -80,6 +81,9 @@ func Attack(entityID int32) skill.BehaviorFunc {
 				return nil
 			}
 			snap = next
+			if timedOut() {
+				return nil
+			}
 		}
 	}
 }

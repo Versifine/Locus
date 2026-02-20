@@ -20,25 +20,27 @@ type Intent struct {
 }
 
 type BehaviorDeps struct {
-	Idle         func() BehaviorFunc
-	GoTo         func(x, y, z int, sprint bool) BehaviorFunc
-	Follow       func(entityID int32, distance float64, sprint bool) BehaviorFunc
-	LookAtEntity func(entityID int32) BehaviorFunc
-	LookAtPos    func(target Vec3) BehaviorFunc
-	Attack       func(entityID int32) BehaviorFunc
-	Mine         func(pos BlockPos, slot *int8) BehaviorFunc
-	PlaceBlock   func(pos BlockPos, face int, slot *int8) BehaviorFunc
-	UseItem      func(slot *int8) BehaviorFunc
-	SwitchSlot   func(slot int8) BehaviorFunc
+	Idle         func(durationMs int) BehaviorFunc
+	GoTo         func(x, y, z int, sprint bool, durationMs int) BehaviorFunc
+	Follow       func(entityID int32, distance float64, sprint bool, durationMs int) BehaviorFunc
+	LookAtEntity func(entityID int32, durationMs int) BehaviorFunc
+	LookAtPos    func(target Vec3, durationMs int) BehaviorFunc
+	Attack       func(entityID int32, durationMs int) BehaviorFunc
+	Mine         func(pos BlockPos, slot *int8, durationMs int) BehaviorFunc
+	PlaceBlock   func(pos BlockPos, face int, slot *int8, durationMs int) BehaviorFunc
+	UseItem      func(slot *int8, durationMs int) BehaviorFunc
+	SwitchSlot   func(slot int8, durationMs int) BehaviorFunc
 }
 
 func MapIntentToBehavior(intent Intent, deps BehaviorDeps) (BehaviorFunc, []Channel, int, error) {
+	durationMs := optionalDurationMs(intent.Params)
+
 	switch intent.Action {
 	case "idle":
 		if deps.Idle == nil {
 			return nil, nil, 0, fmt.Errorf("idle behavior factory is nil")
 		}
-		return deps.Idle(), []Channel{ChannelLegs, ChannelHead}, PriorityIdle, nil
+		return deps.Idle(durationMs), []Channel{ChannelLegs, ChannelHead}, PriorityIdle, nil
 	case "go_to":
 		if deps.GoTo == nil {
 			return nil, nil, 0, fmt.Errorf("go_to behavior factory is nil")
@@ -56,7 +58,7 @@ func MapIntentToBehavior(intent Intent, deps BehaviorDeps) (BehaviorFunc, []Chan
 			return nil, nil, 0, err
 		}
 		sprint, _ := asBool(intent.Params["sprint"])
-		return deps.GoTo(x, y, z, sprint), []Channel{ChannelLegs, ChannelHead}, PriorityGoTo, nil
+		return deps.GoTo(x, y, z, sprint, durationMs), []Channel{ChannelLegs, ChannelHead}, PriorityGoTo, nil
 	case "follow":
 		if deps.Follow == nil {
 			return nil, nil, 0, fmt.Errorf("follow behavior factory is nil")
@@ -70,7 +72,7 @@ func MapIntentToBehavior(intent Intent, deps BehaviorDeps) (BehaviorFunc, []Chan
 			distance = 3
 		}
 		sprint, _ := asBool(intent.Params["sprint"])
-		return deps.Follow(entityID, distance, sprint), []Channel{ChannelLegs, ChannelHead}, PriorityFollow, nil
+		return deps.Follow(entityID, distance, sprint, durationMs), []Channel{ChannelLegs, ChannelHead}, PriorityFollow, nil
 	case "look_at":
 		if entityRaw, ok := intent.Params["entity_id"]; ok {
 			if deps.LookAtEntity == nil {
@@ -80,7 +82,7 @@ func MapIntentToBehavior(intent Intent, deps BehaviorDeps) (BehaviorFunc, []Chan
 			if !ok {
 				return nil, nil, 0, fmt.Errorf("invalid entity_id")
 			}
-			return deps.LookAtEntity(entityID), []Channel{ChannelHead}, PriorityLookAt, nil
+			return deps.LookAtEntity(entityID, durationMs), []Channel{ChannelHead}, PriorityLookAt, nil
 		}
 		if deps.LookAtPos == nil {
 			return nil, nil, 0, fmt.Errorf("look_at(pos) behavior factory is nil")
@@ -98,7 +100,7 @@ func MapIntentToBehavior(intent Intent, deps BehaviorDeps) (BehaviorFunc, []Chan
 			return nil, nil, 0, err
 		}
 		target := Vec3{X: float64(x), Y: float64(y), Z: float64(z)}
-		return deps.LookAtPos(target), []Channel{ChannelHead}, PriorityLookAt, nil
+		return deps.LookAtPos(target, durationMs), []Channel{ChannelHead}, PriorityLookAt, nil
 	case "attack":
 		if deps.Attack == nil {
 			return nil, nil, 0, fmt.Errorf("attack behavior factory is nil")
@@ -107,7 +109,7 @@ func MapIntentToBehavior(intent Intent, deps BehaviorDeps) (BehaviorFunc, []Chan
 		if err != nil {
 			return nil, nil, 0, err
 		}
-		return deps.Attack(entityID), []Channel{ChannelLegs, ChannelHead, ChannelHands}, PriorityAttack, nil
+		return deps.Attack(entityID, durationMs), []Channel{ChannelLegs, ChannelHead, ChannelHands}, PriorityAttack, nil
 	case "mine":
 		if deps.Mine == nil {
 			return nil, nil, 0, fmt.Errorf("mine behavior factory is nil")
@@ -125,7 +127,7 @@ func MapIntentToBehavior(intent Intent, deps BehaviorDeps) (BehaviorFunc, []Chan
 			return nil, nil, 0, err
 		}
 		slot := optionalSlot(intent.Params)
-		return deps.Mine(BlockPos{X: x, Y: y, Z: z}, slot), []Channel{ChannelLegs, ChannelHead, ChannelHands}, PriorityMine, nil
+		return deps.Mine(BlockPos{X: x, Y: y, Z: z}, slot, durationMs), []Channel{ChannelLegs, ChannelHead, ChannelHands}, PriorityMine, nil
 	case "place_block":
 		if deps.PlaceBlock == nil {
 			return nil, nil, 0, fmt.Errorf("place_block behavior factory is nil")
@@ -147,13 +149,13 @@ func MapIntentToBehavior(intent Intent, deps BehaviorDeps) (BehaviorFunc, []Chan
 			return nil, nil, 0, err
 		}
 		slot := optionalSlot(intent.Params)
-		return deps.PlaceBlock(BlockPos{X: x, Y: y, Z: z}, face, slot), []Channel{ChannelLegs, ChannelHead, ChannelHands}, PriorityPlaceBlock, nil
+		return deps.PlaceBlock(BlockPos{X: x, Y: y, Z: z}, face, slot, durationMs), []Channel{ChannelLegs, ChannelHead, ChannelHands}, PriorityPlaceBlock, nil
 	case "use_item":
 		if deps.UseItem == nil {
 			return nil, nil, 0, fmt.Errorf("use_item behavior factory is nil")
 		}
 		slot := optionalSlot(intent.Params)
-		return deps.UseItem(slot), []Channel{ChannelHands}, PriorityUseItem, nil
+		return deps.UseItem(slot, durationMs), []Channel{ChannelHands}, PriorityUseItem, nil
 	case "switch_slot":
 		if deps.SwitchSlot == nil {
 			return nil, nil, 0, fmt.Errorf("switch_slot behavior factory is nil")
@@ -162,7 +164,7 @@ func MapIntentToBehavior(intent Intent, deps BehaviorDeps) (BehaviorFunc, []Chan
 		if err != nil {
 			return nil, nil, 0, err
 		}
-		return deps.SwitchSlot(int8(slot)), []Channel{ChannelHands}, PrioritySwitchSlot, nil
+		return deps.SwitchSlot(int8(slot), durationMs), []Channel{ChannelHands}, PrioritySwitchSlot, nil
 	default:
 		return nil, nil, 0, fmt.Errorf("unknown intent action: %s", intent.Action)
 	}
@@ -204,6 +206,21 @@ func optionalSlot(params map[string]any) *int8 {
 	}
 	s := int8(slotInt)
 	return &s
+}
+
+func optionalDurationMs(params map[string]any) int {
+	if params == nil {
+		return 0
+	}
+	v, ok := params["duration_ms"]
+	if !ok {
+		return 0
+	}
+	d, ok := asIntFromAny(v)
+	if !ok || d <= 0 {
+		return 0
+	}
+	return d
 }
 
 func asInt32FromAny(v any) (int32, bool) {

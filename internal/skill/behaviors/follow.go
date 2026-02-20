@@ -9,7 +9,7 @@ import (
 
 const followLostGraceTicks = 40
 
-func Follow(entityID int32, distance float64, sprint bool) skill.BehaviorFunc {
+func Follow(entityID int32, distance float64, sprint bool, durationMs int) skill.BehaviorFunc {
 	if distance <= 0 {
 		distance = 3
 	}
@@ -23,6 +23,7 @@ func Follow(entityID int32, distance float64, sprint bool) skill.BehaviorFunc {
 		nav := newPathNavigator(48, 1.0)
 		var lastApproach skill.BlockPos
 		hasLastApproach := false
+		timedOut := durationCheck(durationMs)
 
 		for {
 			entity := skill.FindEntity(snap, entityID)
@@ -37,6 +38,9 @@ func Follow(entityID int32, distance float64, sprint bool) skill.BehaviorFunc {
 						return nil
 					}
 					snap = next
+					if timedOut() {
+						return nil
+					}
 					entity = skill.FindEntity(snap, entityID)
 					lostTicks++
 				}
@@ -87,6 +91,9 @@ func Follow(entityID int32, distance float64, sprint bool) skill.BehaviorFunc {
 				return nil
 			}
 			snap = next
+			if timedOut() {
+				return nil
+			}
 		}
 	}
 }

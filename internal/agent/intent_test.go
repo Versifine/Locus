@@ -4,11 +4,12 @@ import "testing"
 
 func TestParseIntentGoTo(t *testing.T) {
 	intent, err := ParseIntent(map[string]any{
-		"action": "go_to",
-		"x":      1,
-		"y":      64,
-		"z":      2,
-		"sprint": true,
+		"action":      "go_to",
+		"x":           1,
+		"y":           64,
+		"z":           2,
+		"sprint":      true,
+		"duration_ms": 250,
 	})
 	if err != nil {
 		t.Fatalf("ParseIntent error: %v", err)
@@ -22,14 +23,18 @@ func TestParseIntentGoTo(t *testing.T) {
 	if intent.Params["sprint"] != true {
 		t.Fatalf("sprint=%v want true", intent.Params["sprint"])
 	}
+	if intent.Params["duration_ms"] != 250 {
+		t.Fatalf("duration_ms=%v want 250", intent.Params["duration_ms"])
+	}
 }
 
 func TestParseIntentFollowSprint(t *testing.T) {
 	intent, err := ParseIntent(map[string]any{
-		"action":    "follow",
-		"entity_id": 42,
-		"distance":  2.5,
-		"sprint":    true,
+		"action":      "follow",
+		"entity_id":   42,
+		"distance":    2.5,
+		"sprint":      true,
+		"duration_ms": 120,
 	})
 	if err != nil {
 		t.Fatalf("ParseIntent error: %v", err)
@@ -45,6 +50,9 @@ func TestParseIntentFollowSprint(t *testing.T) {
 	}
 	if intent.Params["sprint"] != true {
 		t.Fatalf("sprint=%v want true", intent.Params["sprint"])
+	}
+	if intent.Params["duration_ms"] != 120 {
+		t.Fatalf("duration_ms=%v want 120", intent.Params["duration_ms"])
 	}
 }
 
@@ -76,5 +84,12 @@ func TestParseIntentSlotValidation(t *testing.T) {
 	_, err := ParseIntent(map[string]any{"action": "switch_slot", "slot": 12})
 	if err == nil {
 		t.Fatal("expected slot range validation error")
+	}
+}
+
+func TestParseIntentInvalidDurationMs(t *testing.T) {
+	_, err := ParseIntent(map[string]any{"action": "attack", "entity_id": 9, "duration_ms": -1})
+	if err == nil {
+		t.Fatal("expected duration_ms validation error")
 	}
 }

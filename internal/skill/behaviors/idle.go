@@ -7,10 +7,11 @@ import (
 	"github.com/Versifine/locus/internal/skill"
 )
 
-func Idle() skill.BehaviorFunc {
+func Idle(durationMs int) skill.BehaviorFunc {
 	return func(bctx skill.BehaviorCtx) error {
 		snap := bctx.Snapshot()
 		rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+		timedOut := durationCheck(durationMs)
 
 		yawTarget := snap.Position.Yaw
 		pitchTarget := snap.Position.Pitch
@@ -41,6 +42,9 @@ func Idle() skill.BehaviorFunc {
 				return nil
 			}
 			snap = next
+			if timedOut() {
+				return nil
+			}
 		}
 	}
 }

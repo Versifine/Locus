@@ -21,91 +21,91 @@ const (
 	PrioritySwitchSlot = 50
 )
 
-func IdleSpec() Spec {
+func IdleSpec(durationMs int) Spec {
 	return Spec{
 		Name:     "idle",
-		Fn:       Idle(),
+		Fn:       Idle(durationMs),
 		Channels: []skill.Channel{skill.ChannelLegs, skill.ChannelHead},
 		Priority: PriorityIdle,
 	}
 }
 
-func GoToSpec(x, y, z int, sprint bool) Spec {
+func GoToSpec(x, y, z int, sprint bool, durationMs int) Spec {
 	return Spec{
 		Name:     "go_to",
-		Fn:       GoTo(x, y, z, sprint),
+		Fn:       GoTo(x, y, z, sprint, durationMs),
 		Channels: []skill.Channel{skill.ChannelLegs, skill.ChannelHead},
 		Priority: PriorityGoTo,
 	}
 }
 
-func FollowSpec(entityID int32, distance float64, sprint bool) Spec {
+func FollowSpec(entityID int32, distance float64, sprint bool, durationMs int) Spec {
 	return Spec{
 		Name:     "follow",
-		Fn:       Follow(entityID, distance, sprint),
+		Fn:       Follow(entityID, distance, sprint, durationMs),
 		Channels: []skill.Channel{skill.ChannelLegs, skill.ChannelHead},
 		Priority: PriorityFollow,
 	}
 }
 
-func LookAtEntitySpec(entityID int32) Spec {
+func LookAtEntitySpec(entityID int32, durationMs int) Spec {
 	return Spec{
 		Name:     "look_at",
-		Fn:       LookAtEntity(entityID),
+		Fn:       LookAtEntity(entityID, durationMs),
 		Channels: []skill.Channel{skill.ChannelHead},
 		Priority: PriorityLookAt,
 	}
 }
 
-func LookAtPosSpec(target skill.Vec3) Spec {
+func LookAtPosSpec(target skill.Vec3, durationMs int) Spec {
 	return Spec{
 		Name:     "look_at",
-		Fn:       LookAtPos(target),
+		Fn:       LookAtPos(target, durationMs),
 		Channels: []skill.Channel{skill.ChannelHead},
 		Priority: PriorityLookAt,
 	}
 }
 
-func AttackSpec(entityID int32) Spec {
+func AttackSpec(entityID int32, durationMs int) Spec {
 	return Spec{
 		Name:     "attack",
-		Fn:       Attack(entityID),
+		Fn:       Attack(entityID, durationMs),
 		Channels: []skill.Channel{skill.ChannelLegs, skill.ChannelHead, skill.ChannelHands},
 		Priority: PriorityAttack,
 	}
 }
 
-func MineSpec(pos skill.BlockPos, slot *int8) Spec {
+func MineSpec(pos skill.BlockPos, slot *int8, durationMs int) Spec {
 	return Spec{
 		Name:     "mine",
-		Fn:       Mine(pos, slot),
+		Fn:       Mine(pos, slot, durationMs),
 		Channels: []skill.Channel{skill.ChannelLegs, skill.ChannelHead, skill.ChannelHands},
 		Priority: PriorityMine,
 	}
 }
 
-func PlaceBlockSpec(pos skill.BlockPos, face int, slot *int8) Spec {
+func PlaceBlockSpec(pos skill.BlockPos, face int, slot *int8, durationMs int) Spec {
 	return Spec{
 		Name:     "place_block",
-		Fn:       PlaceBlock(pos, face, slot),
+		Fn:       PlaceBlock(pos, face, slot, durationMs),
 		Channels: []skill.Channel{skill.ChannelLegs, skill.ChannelHead, skill.ChannelHands},
 		Priority: PriorityPlaceBlock,
 	}
 }
 
-func UseItemSpec(slot *int8) Spec {
+func UseItemSpec(slot *int8, durationMs int) Spec {
 	return Spec{
 		Name:     "use_item",
-		Fn:       UseItem(slot),
+		Fn:       UseItem(slot, durationMs),
 		Channels: []skill.Channel{skill.ChannelHands},
 		Priority: PriorityUseItem,
 	}
 }
 
-func SwitchSlotSpec(slot int8) Spec {
+func SwitchSlotSpec(slot int8, durationMs int) Spec {
 	return Spec{
 		Name:     "switch_slot",
-		Fn:       SwitchSlot(slot),
+		Fn:       SwitchSlot(slot, durationMs),
 		Channels: []skill.Channel{skill.ChannelHands},
 		Priority: PrioritySwitchSlot,
 	}

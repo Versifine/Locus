@@ -70,7 +70,8 @@ func TestDrainThinkerActions(t *testing.T) {
 		speakCh:  make(chan string, 2),
 		intentCh: make(chan Intent, 2),
 		behaviorDeps: skill.BehaviorDeps{
-			Idle: func() skill.BehaviorFunc {
+			Idle: func(durationMs int) skill.BehaviorFunc {
+				_ = durationMs
 				return func(bctx skill.BehaviorCtx) error {
 					<-bctx.Done()
 					return nil

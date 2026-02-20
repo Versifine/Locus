@@ -108,3 +108,22 @@ func TestRaycastClearAllowsExcludedBlock(t *testing.T) {
 		t.Fatal("expected LOS to pass when only excluded block is on path")
 	}
 }
+
+func TestDurationCheckDisabledWhenNonPositive(t *testing.T) {
+	check := durationCheck(0)
+	for i := 0; i < 10; i++ {
+		if check() {
+			t.Fatal("durationCheck should remain false when duration_ms <= 0")
+		}
+	}
+}
+
+func TestDurationCheckRoundsUpToTicks(t *testing.T) {
+	check := durationCheck(51)
+	if check() {
+		t.Fatal("first tick should not expire for 51ms")
+	}
+	if !check() {
+		t.Fatal("second tick should expire for 51ms")
+	}
+}

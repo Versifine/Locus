@@ -2,9 +2,10 @@ package behaviors
 
 import "github.com/Versifine/locus/internal/skill"
 
-func LookAtEntity(entityID int32) skill.BehaviorFunc {
+func LookAtEntity(entityID int32, durationMs int) skill.BehaviorFunc {
 	return func(bctx skill.BehaviorCtx) error {
 		snap := bctx.Snapshot()
+		timedOut := durationCheck(durationMs)
 		for {
 			entity := skill.FindEntity(snap, entityID)
 			if entity == nil {
@@ -22,13 +23,17 @@ func LookAtEntity(entityID int32) skill.BehaviorFunc {
 				return nil
 			}
 			snap = next
+			if timedOut() {
+				return nil
+			}
 		}
 	}
 }
 
-func LookAtPos(target skill.Vec3) skill.BehaviorFunc {
+func LookAtPos(target skill.Vec3, durationMs int) skill.BehaviorFunc {
 	return func(bctx skill.BehaviorCtx) error {
 		snap := bctx.Snapshot()
+		timedOut := durationCheck(durationMs)
 		for {
 			yaw, pitch := skill.CalcLookAt(snap.Position, target)
 			if absf64(float64(skill.AngleDiff(snap.Position.Yaw, yaw))) <= lookAlignedThreshold &&
@@ -44,6 +49,9 @@ func LookAtPos(target skill.Vec3) skill.BehaviorFunc {
 				return nil
 			}
 			snap = next
+			if timedOut() {
+				return nil
+			}
 		}
 	}
 }

@@ -12,7 +12,7 @@ const (
 	placeRetryIntervalTick  = 8
 )
 
-func PlaceBlock(target skill.BlockPos, face int, slot *int8) skill.BehaviorFunc {
+func PlaceBlock(target skill.BlockPos, face int, slot *int8, durationMs int) skill.BehaviorFunc {
 	return func(bctx skill.BehaviorCtx) error {
 		if bctx.Blocks == nil {
 			return errors.New("place_block requires block access")
@@ -25,6 +25,7 @@ func PlaceBlock(target skill.BlockPos, face int, slot *int8) skill.BehaviorFunc 
 		confirmTicks := 0
 		retryCooldown := 0
 		clickedBlock := clickedBlockFromPlaceDest(target, face)
+		timedOut := durationCheck(durationMs)
 
 		for {
 			if !isAirAt(bctx.Blocks, target) {
@@ -80,6 +81,9 @@ func PlaceBlock(target skill.BlockPos, face int, slot *int8) skill.BehaviorFunc 
 				return nil
 			}
 			snap = next
+			if timedOut() {
+				return nil
+			}
 		}
 	}
 }

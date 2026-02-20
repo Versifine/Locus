@@ -117,6 +117,10 @@ func ParseIntent(input map[string]any) (Intent, error) {
 		return Intent{}, fmt.Errorf("unknown intent action: %s", action)
 	}
 
+	if err := optionalDurationMs(input, params); err != nil {
+		return Intent{}, err
+	}
+
 	return Intent{Action: action, Params: params}, nil
 }
 
@@ -150,6 +154,22 @@ func optionalSlot(src map[string]any, dst map[string]any) error {
 		return fmt.Errorf("slot out of range")
 	}
 	dst["slot"] = n
+	return nil
+}
+
+func optionalDurationMs(src map[string]any, dst map[string]any) error {
+	v, ok := src["duration_ms"]
+	if !ok {
+		return nil
+	}
+	n, ok := asInt(v)
+	if !ok {
+		return fmt.Errorf("invalid duration_ms")
+	}
+	if n < 0 {
+		return fmt.Errorf("duration_ms out of range")
+	}
+	dst["duration_ms"] = n
 	return nil
 }
 
