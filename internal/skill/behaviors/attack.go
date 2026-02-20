@@ -32,15 +32,16 @@ func Attack(entityID int32) skill.BehaviorFunc {
 				return nil
 			}
 
-			target := skill.Vec3{X: entity.X, Y: entity.Y, Z: entity.Z}
+			target := skill.Vec3{X: entity.X, Y: entity.Y + 0.9, Z: entity.Z}
 			yaw, pitch := skill.CalcLookAt(snap.Position, target)
 			inRange := skill.IsNear(snap.Position, target, attackRange)
+			hasLOS := raycastClear(bctx.Blocks, eyePos(snap.Position), target, nil)
 
 			partial := skill.PartialInput{
 				Yaw:   float32Ptr(yaw),
 				Pitch: float32Ptr(pitch),
 			}
-			if !inRange {
+			if !inRange || !hasLOS {
 				targetBlock := toBlockPos(world.Position{X: entity.X, Y: entity.Y, Z: entity.Z})
 				approach := targetBlock
 				if near, ok := nearestApproach(targetBlock, snap.Position, bctx.Blocks); ok {
@@ -58,6 +59,7 @@ func Attack(entityID int32) skill.BehaviorFunc {
 					return err
 				}
 				partial.Forward = move.Forward
+				partial.Jump = move.Jump
 				partial.Sprint = move.Sprint
 				if move.Yaw != nil {
 					partial.Yaw = move.Yaw
@@ -67,7 +69,7 @@ func Attack(entityID int32) skill.BehaviorFunc {
 				hasLastApproach = false
 			}
 
-			if inRange && ticks-lastAttackTick >= attackCooldownTicks {
+			if inRange && hasLOS && ticks-lastAttackTick >= attackCooldownTicks {
 				partial.Attack = boolPtr(true)
 				partial.AttackTarget = int32Ptr(entityID)
 				lastAttackTick = ticks

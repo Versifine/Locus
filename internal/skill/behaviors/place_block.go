@@ -24,6 +24,7 @@ func PlaceBlock(target skill.BlockPos, face int, slot *int8) skill.BehaviorFunc 
 		waitingConfirm := false
 		confirmTicks := 0
 		retryCooldown := 0
+		clickedBlock := clickedBlockFromPlaceDest(target, face)
 
 		for {
 			if !isAirAt(bctx.Blocks, target) {
@@ -36,7 +37,10 @@ func PlaceBlock(target skill.BlockPos, face int, slot *int8) skill.BehaviorFunc 
 				slotSent = true
 			}
 
-			if skill.IsNear(snap.Position, blockCenter(target), placeReachDistance) {
+			inRange := skill.IsNear(snap.Position, blockCenter(target), placeReachDistance)
+			hasLOS := raycastClear(bctx.Blocks, eyePos(snap.Position), blockTopCenter(target), &clickedBlock)
+
+			if inRange && hasLOS {
 				yaw, pitch := skill.CalcLookAt(snap.Position, blockTopCenter(target))
 				partial.Yaw = float32Ptr(yaw)
 				partial.Pitch = float32Ptr(pitch)
@@ -67,6 +71,7 @@ func PlaceBlock(target skill.BlockPos, face int, slot *int8) skill.BehaviorFunc 
 				}
 				partial.Forward = move.Forward
 				partial.Yaw = move.Yaw
+				partial.Jump = move.Jump
 				partial.Sprint = move.Sprint
 			}
 

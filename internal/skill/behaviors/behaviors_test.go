@@ -428,6 +428,30 @@ func TestAttackCooldown(t *testing.T) {
 	}
 }
 
+func TestAttackBlockedByWallDoesNotAttack(t *testing.T) {
+	blocks := newFlatBlocks(-4, 8, -4, 4, 0)
+	blocks.SetState(skill.BlockPos{X: 1, Y: 1, Z: 0}, 1)
+	blocks.SetState(skill.BlockPos{X: 1, Y: 2, Z: 0}, 1)
+
+	h := startBehaviorHarness(t, Attack(9), blocks, world.Snapshot{
+		Position: world.Position{X: 0, Y: 1, Z: 0},
+		Entities: []world.Entity{{EntityID: 9, X: 2, Y: 1, Z: 0}},
+	})
+
+	out := h.pullOutput()
+	if out.Attack != nil && *out.Attack {
+		t.Fatal("expected no attack when LOS is blocked")
+	}
+	if out.AttackTarget != nil {
+		t.Fatalf("expected no attack target when LOS is blocked, got %v", *out.AttackTarget)
+	}
+
+	h.cancel()
+	if err := h.waitDone(); err != nil {
+		t.Fatalf("attack blocked-by-wall returned error: %v", err)
+	}
+}
+
 func TestMineSetsSlotAndBreakTarget(t *testing.T) {
 	blocks := newFlatBlocks(-2, 4, -2, 2, 0)
 	target := skill.BlockPos{X: 1, Y: 1, Z: 0}
@@ -484,6 +508,28 @@ func TestMineMarksBreakFinishedAfterEstimatedTicks(t *testing.T) {
 	}
 }
 
+func TestMineBlockedByWallDoesNotBreak(t *testing.T) {
+	blocks := newFlatBlocks(-4, 8, -4, 4, 0)
+	target := skill.BlockPos{X: 2, Y: 1, Z: 0}
+	blocks.SetState(target, 1)
+	blocks.SetState(skill.BlockPos{X: 1, Y: 1, Z: 0}, 1)
+	blocks.SetState(skill.BlockPos{X: 1, Y: 2, Z: 0}, 1)
+
+	h := startBehaviorHarness(t, Mine(target, nil), blocks, world.Snapshot{Position: world.Position{X: 0, Y: 1, Z: 0}})
+	out := h.pullOutput()
+	if out.Attack != nil && *out.Attack {
+		t.Fatal("expected no mining attack when LOS is blocked")
+	}
+	if out.BreakTarget != nil {
+		t.Fatalf("expected no break target when LOS is blocked, got %+v", out.BreakTarget)
+	}
+
+	h.cancel()
+	if err := h.waitDone(); err != nil {
+		t.Fatalf("mine blocked-by-wall returned error: %v", err)
+	}
+}
+
 func TestPlaceBlockWaitsForConfirmation(t *testing.T) {
 	blocks := newFlatBlocks(-2, 4, -2, 2, 0)
 	target := skill.BlockPos{X: 1, Y: 1, Z: 0}
@@ -528,6 +574,27 @@ func TestPlaceBlockTimeoutWithoutConfirmation(t *testing.T) {
 	err := h.waitDone()
 	if err == nil {
 		t.Fatal("expected place_block timeout error")
+	}
+}
+
+func TestPlaceBlockBlockedByWallDoesNotPlace(t *testing.T) {
+	blocks := newFlatBlocks(-4, 8, -4, 4, 0)
+	target := skill.BlockPos{X: 2, Y: 1, Z: 0}
+	blocks.SetState(skill.BlockPos{X: 1, Y: 1, Z: 0}, 1)
+	blocks.SetState(skill.BlockPos{X: 1, Y: 2, Z: 0}, 1)
+
+	h := startBehaviorHarness(t, PlaceBlock(target, 1, nil), blocks, world.Snapshot{Position: world.Position{X: 0, Y: 1, Z: 0}})
+	out := h.pullOutput()
+	if out.Use != nil && *out.Use {
+		t.Fatal("expected no place action when LOS is blocked")
+	}
+	if out.PlaceTarget != nil {
+		t.Fatalf("expected no place target when LOS is blocked, got %+v", out.PlaceTarget)
+	}
+
+	h.cancel()
+	if err := h.waitDone(); err != nil {
+		t.Fatalf("place_block blocked-by-wall returned error: %v", err)
 	}
 }
 

@@ -14,6 +14,8 @@ const (
 	pathStuckTicks       = 10
 	pathReplanCooldown   = 6
 	lookAlignedThreshold = 3.0
+	raycastStepSize      = 0.1
+	raycastMaxSteps      = 64
 )
 
 func boolPtr(v bool) *bool { return &v }
@@ -48,6 +50,93 @@ func blockCenter(pos skill.BlockPos) skill.Vec3 {
 
 func blockTopCenter(pos skill.BlockPos) skill.Vec3 {
 	return skill.Vec3{X: float64(pos.X) + 0.5, Y: float64(pos.Y) + 0.5, Z: float64(pos.Z) + 0.5}
+}
+
+func eyePos(pos world.Position) skill.Vec3 {
+	return skill.Vec3{X: pos.X, Y: pos.Y + 1.62, Z: pos.Z}
+}
+
+func clickedBlockFromPlaceDest(dest skill.BlockPos, face int) skill.BlockPos {
+	switch face {
+	case 0: // bottom
+		return skill.BlockPos{X: dest.X, Y: dest.Y + 1, Z: dest.Z}
+	case 1: // top
+		return skill.BlockPos{X: dest.X, Y: dest.Y - 1, Z: dest.Z}
+	case 2: // north
+		return skill.BlockPos{X: dest.X, Y: dest.Y, Z: dest.Z + 1}
+	case 3: // south
+		return skill.BlockPos{X: dest.X, Y: dest.Y, Z: dest.Z - 1}
+	case 4: // west
+		return skill.BlockPos{X: dest.X + 1, Y: dest.Y, Z: dest.Z}
+	case 5: // east
+		return skill.BlockPos{X: dest.X - 1, Y: dest.Y, Z: dest.Z}
+	default:
+		return dest
+	}
+}
+
+func raycastClear(blocks skill.BlockAccess, from, to skill.Vec3, excludeBlock *skill.BlockPos) bool {
+	if blocks == nil {
+		return false
+	}
+
+	dx := to.X - from.X
+	dy := to.Y - from.Y
+	dz := to.Z - from.Z
+	dist := math.Sqrt(dx*dx + dy*dy + dz*dz)
+	if dist < 1e-6 {
+		return true
+	}
+
+	maxDist := raycastStepSize * float64(raycastMaxSteps)
+	travel := dist
+	if travel > maxDist {
+		travel = maxDist
+	}
+
+	steps := int(math.Ceil(travel / raycastStepSize))
+	if steps < 1 {
+		steps = 1
+	}
+
+	invDist := 1.0 / dist
+	dirX := dx * invDist
+	dirY := dy * invDist
+	dirZ := dz * invDist
+
+	hasLast := false
+	var last skill.BlockPos
+
+	for i := 1; i <= steps; i++ {
+		d := float64(i) * raycastStepSize
+		if d > travel {
+			d = travel
+		}
+
+		x := from.X + dirX*d
+		y := from.Y + dirY*d
+		z := from.Z + dirZ*d
+		pos := skill.BlockPos{
+			X: int(math.Floor(x)),
+			Y: int(math.Floor(y)),
+			Z: int(math.Floor(z)),
+		}
+
+		if hasLast && pos == last {
+			continue
+		}
+		hasLast = true
+		last = pos
+
+		if excludeBlock != nil && pos == *excludeBlock {
+			continue
+		}
+		if blocks.IsSolid(pos.X, pos.Y, pos.Z) {
+			return false
+		}
+	}
+
+	return true
 }
 
 func isAirAt(blocks skill.BlockAccess, pos skill.BlockPos) bool {

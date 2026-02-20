@@ -26,13 +26,15 @@ func Mine(target skill.BlockPos, slot *int8) skill.BehaviorFunc {
 			}
 
 			lookYaw, lookPitch := skill.CalcLookAt(snap.Position, blockTopCenter(target))
+			inRange := skill.IsNear(snap.Position, blockCenter(target), mineReachDistance)
+			hasLOS := raycastClear(bctx.Blocks, eyePos(snap.Position), blockTopCenter(target), &target)
 			partial := skill.PartialInput{}
 			if slot != nil && !slotSent {
 				partial.HotbarSlot = int8Ptr(*slot)
 				slotSent = true
 			}
 
-			if skill.IsNear(snap.Position, blockCenter(target), mineReachDistance) {
+			if inRange && hasLOS {
 				partial.Yaw = float32Ptr(lookYaw)
 				partial.Pitch = float32Ptr(lookPitch)
 				partial.Attack = boolPtr(true)
