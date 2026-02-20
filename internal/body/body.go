@@ -294,11 +294,12 @@ func (b *Body) syncHandsActions(input InputState) error {
 
 	if input.PlaceTarget != nil {
 		seq := b.nextUseSeq()
+		clickedPos := clickedBlockFromDest(input.PlaceTarget.Pos, input.PlaceTarget.Face)
 		packet := protocol.CreateBlockPlacePacket(
 			protocol.BlockPos{
-				X: int32(input.PlaceTarget.Pos.X),
-				Y: int32(input.PlaceTarget.Pos.Y),
-				Z: int32(input.PlaceTarget.Pos.Z),
+				X: int32(clickedPos.X),
+				Y: int32(clickedPos.Y),
+				Z: int32(clickedPos.Z),
 			},
 			input.PlaceTarget.Face,
 			0,
@@ -461,4 +462,23 @@ func (b *Body) nextUseSeq() int32 {
 
 func sameBlockPos(a, b physics.BlockPos) bool {
 	return a.X == b.X && a.Y == b.Y && a.Z == b.Z
+}
+
+func clickedBlockFromDest(dest physics.BlockPos, face int) physics.BlockPos {
+	switch face {
+	case 0: // bottom
+		return physics.BlockPos{X: dest.X, Y: dest.Y + 1, Z: dest.Z}
+	case 1: // top
+		return physics.BlockPos{X: dest.X, Y: dest.Y - 1, Z: dest.Z}
+	case 2: // north
+		return physics.BlockPos{X: dest.X, Y: dest.Y, Z: dest.Z + 1}
+	case 3: // south
+		return physics.BlockPos{X: dest.X, Y: dest.Y, Z: dest.Z - 1}
+	case 4: // west
+		return physics.BlockPos{X: dest.X + 1, Y: dest.Y, Z: dest.Z}
+	case 5: // east
+		return physics.BlockPos{X: dest.X - 1, Y: dest.Y, Z: dest.Z}
+	default:
+		return dest
+	}
 }
