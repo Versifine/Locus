@@ -55,6 +55,15 @@ var PerceptionTools = []ToolDef{
 		},
 	},
 	{
+		Name:        "query_nearby",
+		Description: "查询空间记忆中附近的实体和方块（无需重新观察）",
+		Parameters: map[string]ParamDef{
+			"radius":      {Type: "integer", Default: 16},
+			"type_filter": {Type: "string", Enum: []string{"entity", "block", "all"}, Default: "all"},
+			"max_age_sec": {Type: "integer", Default: 30},
+		},
+	},
+	{
 		Name:        "recall",
 		Description: "混合检索长期记忆",
 		Parameters: map[string]ParamDef{

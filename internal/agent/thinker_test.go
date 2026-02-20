@@ -223,9 +223,20 @@ func TestThinkerInitialInputIncludesFormattedEvents(t *testing.T) {
 		},
 		nil,
 		"- [closed] id=ep-1 tick=10 trigger=chat decision=go_to outcome=behavior_end",
+		"Nearby entities (last 30s): none\nRecent blocks: none",
 	)
-	if !containsAll(text, []string{"[Basic Status]", "[Short-term Memory]", "[Events]", "damage@tick=21", "amount=2.0", "hp=18.0"}) {
+	if !containsAll(text, []string{"[Basic Status]", "[Short-term Memory]", "[Spatial Context]", "[Events]", "damage@tick=21", "amount=2.0", "hp=18.0"}) {
 		t.Fatalf("initial input=%q", text)
+	}
+}
+
+func TestThinkerSpatialContextFromMemory(t *testing.T) {
+	memory := NewSpatialMemory()
+	memory.UpdateEntities([]world.Entity{{EntityID: 42, Type: 150, X: 2, Y: 64, Z: 3}}, 7)
+
+	ctx := thinkerSpatialContext(world.Snapshot{Position: world.Position{X: 0, Y: 64, Z: 0}}, memory)
+	if !containsAll(ctx, []string{"Nearby entities", "id=42"}) {
+		t.Fatalf("spatial context=%q", ctx)
 	}
 }
 

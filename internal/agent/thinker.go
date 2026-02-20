@@ -49,7 +49,7 @@ func (t *thinker) think(ctx context.Context, snap world.Snapshot, events []Buffe
 
 	messages := []llm.ToolMessage{
 		{Role: "system", Content: thinkerSystemPrompt(t.llmClient.Config().SystemPrompt)},
-		{Role: "user", Content: thinkerInitialInput(snap, events, t.runner, shortTerm)},
+		{Role: "user", Content: thinkerInitialInput(snap, events, t.runner, shortTerm, thinkerSpatialContext(snap, t.executor.SpatialMemory))},
 	}
 
 	for {
@@ -159,7 +159,7 @@ func thinkerSystemPrompt(base string) string {
 	return base + "\n\n重要：你必须通过工具获取信息和执行动作。[Basic Status] 提供你的基础状态，[Events] 是最近发生的事件。根据这些信息决定下一步行动。如果不确定周围环境，先调用 look() 观察。"
 }
 
-func thinkerInitialInput(snap world.Snapshot, events []BufferedEvent, runner *skill.BehaviorRunner, shortTerm string) string {
+func thinkerInitialInput(snap world.Snapshot, events []BufferedEvent, runner *skill.BehaviorRunner, shortTerm string, spatialContext string) string {
 	active := "none"
 	if runner != nil {
 		names := runner.Active()
@@ -173,6 +173,11 @@ func thinkerInitialInput(snap world.Snapshot, events []BufferedEvent, runner *sk
 		shortTerm = "- none"
 	}
 
+	spatialContext = strings.TrimSpace(spatialContext)
+	if spatialContext == "" {
+		spatialContext = "- none"
+	}
+
 	eventLines := make([]string, 0, len(events))
 	for _, evt := range events {
 		eventLines = append(eventLines, "- "+formatBufferedEvent(evt))
@@ -182,7 +187,7 @@ func thinkerInitialInput(snap world.Snapshot, events []BufferedEvent, runner *sk
 	}
 
 	return fmt.Sprintf(
-		"[Basic Status]\nposition=(%.2f, %.2f, %.2f) yaw=%.2f pitch=%.2f hp=%.1f food=%d active=%s\n\n[Short-term Memory]\n%s\n\n[Events]\n%s",
+		"[Basic Status]\nposition=(%.2f, %.2f, %.2f) yaw=%.2f pitch=%.2f hp=%.1f food=%d active=%s\n\n[Short-term Memory]\n%s\n\n[Spatial Context]\n%s\n\n[Events]\n%s",
 		snap.Position.X,
 		snap.Position.Y,
 		snap.Position.Z,
@@ -192,8 +197,16 @@ func thinkerInitialInput(snap world.Snapshot, events []BufferedEvent, runner *sk
 		snap.Food,
 		active,
 		shortTerm,
+		spatialContext,
 		strings.Join(eventLines, "\n"),
 	)
+}
+
+func thinkerSpatialContext(snap world.Snapshot, spatialMemory *SpatialMemory) string {
+	if spatialMemory == nil {
+		return "- none"
+	}
+	return spatialMemory.Summary(Vec3{X: snap.Position.X, Y: snap.Position.Y, Z: snap.Position.Z}, defaultSpatialQueryRadius)
 }
 
 func formatBufferedEvent(evt BufferedEvent) string {

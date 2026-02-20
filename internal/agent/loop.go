@@ -48,9 +48,10 @@ type LoopAgent struct {
 	runner        *skill.BehaviorRunner
 	llmClient     thinkerClient
 
-	attention   *Attention
-	eventBuffer *EventBuffer
-	eventInCh   chan incomingEvent
+	attention     *Attention
+	spatialMemory *SpatialMemory
+	eventBuffer   *EventBuffer
+	eventInCh     chan incomingEvent
 
 	speakCh  chan string
 	intentCh chan Intent
@@ -118,6 +119,7 @@ func NewLoopAgent(
 		runner:             runner,
 		llmClient:          llmClient,
 		attention:          NewAttention(bus),
+		spatialMemory:      NewSpatialMemory(),
 		eventBuffer:        NewEventBuffer(100),
 		eventInCh:          make(chan incomingEvent, eventInChanBuffer),
 		speakCh:            make(chan string, thinkerActionChanSize),
@@ -135,19 +137,22 @@ func NewLoopAgent(
 	}
 
 	a.toolExecutor = ToolExecutor{
-		SnapshotFn: stateProvider.GetState,
-		World:      worldAccess,
-		Camera:     camera,
-		SpeakChan:  a.speakCh,
-		IntentChan: a.intentCh,
-		CancelAll:  runner.CancelAll,
-		SetHead:    a.setHead,
-		Recall:     a.recallMemory,
-		Remember:   a.rememberMemory,
+		SnapshotFn:    stateProvider.GetState,
+		World:         worldAccess,
+		Camera:        camera,
+		SpatialMemory: a.spatialMemory,
+		TickIDFn:      a.tickCounter.Load,
+		SpeakChan:     a.speakCh,
+		IntentChan:    a.intentCh,
+		CancelAll:     runner.CancelAll,
+		SetHead:       a.setHead,
+		Recall:        a.recallMemory,
+		Remember:      a.rememberMemory,
 		WaitForIdle: func(ctx context.Context, timeout time.Duration) (map[string]any, error) {
 			return a.waitForIdle(ctx, timeout)
 		},
 	}
+	a.attention.SpatialMemory = a.spatialMemory
 
 	a.subscribeEvents()
 	return a
@@ -244,7 +249,7 @@ func (a *LoopAgent) tick(ctx context.Context, snap world.Snapshot) {
 	if a == nil {
 		return
 	}
-	a.tickCounter.Add(1)
+	tickID := a.tickCounter.Add(1)
 
 	input := a.runner.Tick(snap)
 	if a.runner.OwnsChannel(skill.ChannelHead) {
@@ -260,10 +265,10 @@ func (a *LoopAgent) tick(ctx context.Context, snap world.Snapshot) {
 		}
 	}
 
-	a.attention.Tick(snap)
+	a.attention.Tick(snap, tickID)
 	a.drainEvents()
 	a.closeTimedOutEpisodes()
-	a.cleanupPendingBehaviorEnds(a.tickCounter.Load())
+	a.cleanupPendingBehaviorEnds(tickID)
 
 	if a.shouldThink() {
 		a.startThinker(ctx, snap)

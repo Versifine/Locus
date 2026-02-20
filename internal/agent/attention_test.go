@@ -20,8 +20,8 @@ func TestAttentionPublishesDamage(t *testing.T) {
 		}
 	})
 
-	attention.Tick(world.Snapshot{Health: 20})
-	attention.Tick(world.Snapshot{Health: 17.5})
+	attention.Tick(world.Snapshot{Health: 20}, 1)
+	attention.Tick(world.Snapshot{Health: 17.5}, 2)
 
 	select {
 	case evt := <-ch:
@@ -56,8 +56,8 @@ func TestAttentionPublishesEntityAppearLeave(t *testing.T) {
 		}
 	})
 
-	attention.Tick(world.Snapshot{})
-	attention.Tick(world.Snapshot{Entities: []world.Entity{{EntityID: 42, Type: 155}}})
+	attention.Tick(world.Snapshot{}, 1)
+	attention.Tick(world.Snapshot{Entities: []world.Entity{{EntityID: 42, Type: 155}}}, 2)
 
 	select {
 	case evt := <-appearCh:
@@ -68,7 +68,7 @@ func TestAttentionPublishesEntityAppearLeave(t *testing.T) {
 		t.Fatal("timeout waiting appear event")
 	}
 
-	attention.Tick(world.Snapshot{})
+	attention.Tick(world.Snapshot{}, 3)
 
 	select {
 	case evt := <-leaveCh:
@@ -77,5 +77,54 @@ func TestAttentionPublishesEntityAppearLeave(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timeout waiting leave event")
+	}
+}
+
+func TestAttentionUpdatesSpatialMemoryOnAppearAndLeave(t *testing.T) {
+	attention := NewAttention(nil)
+	attention.SpatialMemory = NewSpatialMemory()
+
+	attention.Tick(world.Snapshot{}, 1)
+	attention.Tick(world.Snapshot{Entities: []world.Entity{{EntityID: 9, Type: 150, X: 1, Y: 64, Z: 2}}}, 2)
+
+	entities, _ := attention.SpatialMemory.QueryNearby(Vec3{X: 1, Y: 64, Z: 2}, 8, time.Minute)
+	if len(entities) != 1 {
+		t.Fatalf("entities len=%d want 1 after appear", len(entities))
+	}
+	if !entities[0].InFOV {
+		t.Fatal("expected entity in_fov after appear")
+	}
+
+	attention.Tick(world.Snapshot{}, 3)
+	entities, _ = attention.SpatialMemory.QueryNearby(Vec3{X: 1, Y: 64, Z: 2}, 8, time.Minute)
+	if len(entities) != 1 {
+		t.Fatalf("entities len=%d want 1 after leave", len(entities))
+	}
+	if entities[0].InFOV {
+		t.Fatal("expected entity marked out_of_fov after leave")
+	}
+}
+
+func TestAttentionRefreshesVisibleEntityAndPreventsGCExpiry(t *testing.T) {
+	attention := NewAttention(nil)
+	memory := NewSpatialMemory()
+	memory.maxEntityAge = 25 * time.Millisecond
+	attention.SpatialMemory = memory
+
+	attention.Tick(world.Snapshot{Entities: []world.Entity{{EntityID: 7, Type: 150, X: 0, Y: 64, Z: 0}}}, 1)
+	time.Sleep(20 * time.Millisecond)
+	attention.Tick(world.Snapshot{Entities: []world.Entity{{EntityID: 7, Type: 150, X: 5, Y: 64, Z: 0}}}, 2)
+	time.Sleep(20 * time.Millisecond)
+	memory.GC()
+
+	entities, _ := memory.QueryNearby(Vec3{X: 5, Y: 64, Z: 0}, 16, time.Minute)
+	if len(entities) != 1 {
+		t.Fatalf("entities len=%d want 1 after refresh+gc", len(entities))
+	}
+	if entities[0].X != 5 {
+		t.Fatalf("entity X=%.1f want 5.0", entities[0].X)
+	}
+	if entities[0].TickID != 2 {
+		t.Fatalf("entity tick=%d want 2", entities[0].TickID)
 	}
 }
