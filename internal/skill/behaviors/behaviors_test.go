@@ -13,15 +13,28 @@ import (
 type mockBlocks struct {
 	mu     sync.RWMutex
 	states map[skill.BlockPos]int32
+	names  map[int32]string
 }
 
 func newMockBlocks() *mockBlocks {
-	return &mockBlocks{states: make(map[skill.BlockPos]int32)}
+	return &mockBlocks{
+		states: make(map[skill.BlockPos]int32),
+		names: map[int32]string{
+			0: "air",
+			1: "stone",
+		},
+	}
 }
 
 func (m *mockBlocks) SetState(pos skill.BlockPos, state int32) {
 	m.mu.Lock()
 	m.states[pos] = state
+	m.mu.Unlock()
+}
+
+func (m *mockBlocks) SetName(state int32, name string) {
+	m.mu.Lock()
+	m.names[state] = name
 	m.mu.Unlock()
 }
 
@@ -36,10 +49,13 @@ func (m *mockBlocks) GetBlockState(x, y, z int) (int32, bool) {
 }
 
 func (m *mockBlocks) GetBlockNameByStateID(stateID int32) (string, bool) {
-	if stateID == 0 {
-		return "air", true
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	name, ok := m.names[stateID]
+	if ok {
+		return name, true
 	}
-	return "stone", true
+	return "state", false
 }
 
 func (m *mockBlocks) IsSolid(x, y, z int) bool {
@@ -137,7 +153,7 @@ func (h *behaviorHarness) waitDone() error {
 }
 
 func TestIdleOutputsHeadAndLegs(t *testing.T) {
-	h := startBehaviorHarness(t, Idle(), nil, world.Snapshot{Position: world.Position{X: 0, Y: 1, Z: 0}})
+	h := startBehaviorHarness(t, Idle(0), nil, world.Snapshot{Position: world.Position{X: 0, Y: 1, Z: 0}})
 	out := h.pullOutput()
 	if out.Yaw == nil {
 		t.Fatal("expected yaw output")
@@ -150,7 +166,7 @@ func TestIdleOutputsHeadAndLegs(t *testing.T) {
 
 func TestGoToReachesTarget(t *testing.T) {
 	blocks := newFlatBlocks(-2, 8, -2, 2, 0)
-	h := startBehaviorHarness(t, GoTo(2, 1, 0, false), blocks, world.Snapshot{Position: world.Position{X: 0, Y: 1, Z: 0}})
+	h := startBehaviorHarness(t, GoTo(2, 1, 0, false, 0), blocks, world.Snapshot{Position: world.Position{X: 0, Y: 1, Z: 0}})
 
 	out1 := h.pullOutput()
 	if out1.Forward == nil || !*out1.Forward {
@@ -175,7 +191,7 @@ func TestGoToFailsWhenTargetUnreachable(t *testing.T) {
 		}
 	}
 
-	h := startBehaviorHarness(t, GoTo(4, 1, 0, false), blocks, world.Snapshot{Position: world.Position{X: 0, Y: 1, Z: 0}})
+	h := startBehaviorHarness(t, GoTo(4, 1, 0, false, 0), blocks, world.Snapshot{Position: world.Position{X: 0, Y: 1, Z: 0}})
 	for i := 0; i < 80; i++ {
 		select {
 		case err := <-h.doneCh:
@@ -199,7 +215,7 @@ func TestGoToFailsWhenTargetUnreachable(t *testing.T) {
 
 func TestGoToRecoversAfterPushBack(t *testing.T) {
 	blocks := newFlatBlocks(-2, 8, -2, 2, 0)
-	h := startBehaviorHarness(t, GoTo(3, 1, 0, false), blocks, world.Snapshot{Position: world.Position{X: 0, Y: 1, Z: 0}})
+	h := startBehaviorHarness(t, GoTo(3, 1, 0, false, 0), blocks, world.Snapshot{Position: world.Position{X: 0, Y: 1, Z: 0}})
 
 	out1 := h.pullOutput()
 	if out1.Forward == nil || !*out1.Forward {
@@ -224,10 +240,9 @@ func TestGoToRecoversAfterPushBack(t *testing.T) {
 	}
 }
 
-func TestFollowStopsWhenEntityMissing(t *testing.T) {
+func TestFollowStopsAfterGracePeriodWhenEntityMissing(t *testing.T) {
 	blocks := newFlatBlocks(-2, 8, -2, 2, 0)
-	fn := Follow(42, 2.5)
-	h := startBehaviorHarness(t, fn, blocks, world.Snapshot{
+	h := startBehaviorHarness(t, Follow(42, 2.5, false, 0), blocks, world.Snapshot{
 		Position: world.Position{X: 0, Y: 1, Z: 0},
 		Entities: []world.Entity{{EntityID: 42, X: 5, Y: 1, Z: 0}},
 	})
@@ -236,10 +251,94 @@ func TestFollowStopsWhenEntityMissing(t *testing.T) {
 	if out.Forward == nil || !*out.Forward {
 		t.Fatal("expected follow to move toward target")
 	}
-	h.pushSnapshot(world.Snapshot{Position: world.Position{X: 0.5, Y: 1, Z: 0}})
+
+	lostSnap := world.Snapshot{Position: world.Position{X: 0.5, Y: 1, Z: 0}}
+	h.pushSnapshot(lostSnap)
+	for i := 0; i < followLostGraceTicks; i++ {
+		waitOut := h.pullOutput()
+		if waitOut.Forward != nil || waitOut.Jump != nil || waitOut.Sprint != nil {
+			t.Fatal("expected idle output while waiting for missing target")
+		}
+		h.pushSnapshot(lostSnap)
+	}
 
 	if err := h.waitDone(); err != nil {
 		t.Fatalf("follow returned error: %v", err)
+	}
+}
+
+func TestFollowRecoversWhenEntityReturnsWithinGracePeriod(t *testing.T) {
+	blocks := newFlatBlocks(-2, 8, -2, 2, 0)
+	h := startBehaviorHarness(t, Follow(42, 2.5, false, 0), blocks, world.Snapshot{
+		Position: world.Position{X: 0, Y: 1, Z: 0},
+		Entities: []world.Entity{{EntityID: 42, X: 5, Y: 1, Z: 0}},
+	})
+
+	out := h.pullOutput()
+	if out.Forward == nil || !*out.Forward {
+		t.Fatal("expected follow to move toward target")
+	}
+
+	h.pushSnapshot(world.Snapshot{Position: world.Position{X: 0.5, Y: 1, Z: 0}})
+	waitOut := h.pullOutput()
+	if waitOut.Forward != nil || waitOut.Jump != nil || waitOut.Sprint != nil {
+		t.Fatal("expected no movement while target is temporarily missing")
+	}
+
+	h.pushSnapshot(world.Snapshot{
+		Position: world.Position{X: 0.5, Y: 1, Z: 0},
+		Entities: []world.Entity{{EntityID: 42, X: 4, Y: 1, Z: 0}},
+	})
+	recovered := h.pullOutput()
+	if recovered.Forward == nil || !*recovered.Forward {
+		t.Fatal("expected follow to resume movement after target returns")
+	}
+
+	h.cancel()
+	if err := h.waitDone(); err != nil {
+		t.Fatalf("follow recovery returned error: %v", err)
+	}
+}
+
+func TestFollowPropagatesNavigatorJumpAndSprint(t *testing.T) {
+	blocks := newMockBlocks()
+	for _, pos := range []skill.BlockPos{
+		{X: 0, Y: 0, Z: 0},
+		{X: 1, Y: 0, Z: 0},
+		{X: 2, Y: 1, Z: 0},
+		{X: 3, Y: 1, Z: 0},
+	} {
+		blocks.SetState(pos, 1)
+	}
+
+	h := startBehaviorHarness(t, Follow(42, 0.5, true, 0), blocks, world.Snapshot{
+		Position: world.Position{X: 0, Y: 1, Z: 0},
+		Entities: []world.Entity{{EntityID: 42, X: 3, Y: 2, Z: 0}},
+	})
+
+	out1 := h.pullOutput()
+	if out1.Forward == nil || !*out1.Forward {
+		t.Fatal("expected follow to move toward elevated target")
+	}
+	if out1.Sprint == nil || !*out1.Sprint {
+		t.Fatal("expected sprint output to propagate from navigator")
+	}
+
+	h.pushSnapshot(world.Snapshot{
+		Position: world.Position{X: 1, Y: 1, Z: 0},
+		Entities: []world.Entity{{EntityID: 42, X: 3, Y: 2, Z: 0}},
+	})
+	out2 := h.pullOutput()
+	if out2.Jump == nil || !*out2.Jump {
+		t.Fatal("expected jump output to propagate from navigator")
+	}
+	if out2.Sprint == nil || !*out2.Sprint {
+		t.Fatal("expected sprint output on climb tick")
+	}
+
+	h.cancel()
+	if err := h.waitDone(); err != nil {
+		t.Fatalf("follow jump/sprint returned error: %v", err)
 	}
 }
 
@@ -250,7 +349,7 @@ func TestFollowUsesPathAroundObstacle(t *testing.T) {
 		blocks.SetState(skill.BlockPos{X: 1, Y: 2, Z: z}, 1)
 	}
 
-	h := startBehaviorHarness(t, Follow(42, 2.5), blocks, world.Snapshot{
+	h := startBehaviorHarness(t, Follow(42, 2.5, false, 0), blocks, world.Snapshot{
 		Position: world.Position{X: 0, Y: 1, Z: 0},
 		Entities: []world.Entity{{EntityID: 42, X: 5, Y: 1, Z: 0}},
 	})
@@ -272,9 +371,30 @@ func TestFollowUsesPathAroundObstacle(t *testing.T) {
 	}
 }
 
+func TestFollowDurationExpires(t *testing.T) {
+	blocks := newFlatBlocks(-2, 8, -2, 2, 0)
+	h := startBehaviorHarness(t, Follow(42, 2.5, false, 50), blocks, world.Snapshot{
+		Position: world.Position{X: 0, Y: 1, Z: 0},
+		Entities: []world.Entity{{EntityID: 42, X: 5, Y: 1, Z: 0}},
+	})
+
+	out := h.pullOutput()
+	if out.Forward == nil || !*out.Forward {
+		t.Fatal("expected follow movement before duration expiration")
+	}
+	h.pushSnapshot(world.Snapshot{
+		Position: world.Position{X: 0.2, Y: 1, Z: 0},
+		Entities: []world.Entity{{EntityID: 42, X: 5, Y: 1, Z: 0}},
+	})
+
+	if err := h.waitDone(); err != nil {
+		t.Fatalf("follow duration returned error: %v", err)
+	}
+}
+
 func TestLookAtPosCompletesWhenAligned(t *testing.T) {
 	target := skill.Vec3{X: 0, Y: 1, Z: 10}
-	h := startBehaviorHarness(t, LookAtPos(target), nil, world.Snapshot{
+	h := startBehaviorHarness(t, LookAtPos(target, 0), nil, world.Snapshot{
 		Position: world.Position{X: 0, Y: 1, Z: 0, Yaw: 90, Pitch: 0},
 	})
 
@@ -290,7 +410,7 @@ func TestLookAtPosCompletesWhenAligned(t *testing.T) {
 }
 
 func TestLookAtEntityTracksUntilGone(t *testing.T) {
-	h := startBehaviorHarness(t, LookAtEntity(7), nil, world.Snapshot{
+	h := startBehaviorHarness(t, LookAtEntity(7, 0), nil, world.Snapshot{
 		Position: world.Position{X: 0, Y: 1, Z: 0},
 		Entities: []world.Entity{{EntityID: 7, X: 0, Y: 1, Z: 6}},
 	})
@@ -317,7 +437,7 @@ func TestLookAtEntityTracksUntilGone(t *testing.T) {
 
 func TestAttackCooldown(t *testing.T) {
 	blocks := newFlatBlocks(-4, 8, -4, 4, 0)
-	h := startBehaviorHarness(t, Attack(9), blocks, world.Snapshot{
+	h := startBehaviorHarness(t, Attack(9, 0), blocks, world.Snapshot{
 		Position: world.Position{X: 0, Y: 1, Z: 0},
 		Entities: []world.Entity{{EntityID: 9, X: 1, Y: 1, Z: 0}},
 	})
@@ -345,19 +465,67 @@ func TestAttackCooldown(t *testing.T) {
 	}
 }
 
+func TestAttackBlockedByWallDoesNotAttack(t *testing.T) {
+	blocks := newFlatBlocks(-4, 8, -4, 4, 0)
+	blocks.SetState(skill.BlockPos{X: 1, Y: 1, Z: 0}, 1)
+	blocks.SetState(skill.BlockPos{X: 1, Y: 2, Z: 0}, 1)
+
+	h := startBehaviorHarness(t, Attack(9, 0), blocks, world.Snapshot{
+		Position: world.Position{X: 0, Y: 1, Z: 0},
+		Entities: []world.Entity{{EntityID: 9, X: 2, Y: 1, Z: 0}},
+	})
+
+	out := h.pullOutput()
+	if out.Attack != nil && *out.Attack {
+		t.Fatal("expected no attack when LOS is blocked")
+	}
+	if out.AttackTarget != nil {
+		t.Fatalf("expected no attack target when LOS is blocked, got %v", *out.AttackTarget)
+	}
+
+	h.cancel()
+	if err := h.waitDone(); err != nil {
+		t.Fatalf("attack blocked-by-wall returned error: %v", err)
+	}
+}
+
+func TestAttackDurationExpires(t *testing.T) {
+	blocks := newFlatBlocks(-4, 8, -4, 4, 0)
+	h := startBehaviorHarness(t, Attack(9, 50), blocks, world.Snapshot{
+		Position: world.Position{X: 0, Y: 1, Z: 0},
+		Entities: []world.Entity{{EntityID: 9, X: 1, Y: 1, Z: 0}},
+	})
+
+	out := h.pullOutput()
+	if out.Attack == nil || !*out.Attack {
+		t.Fatal("expected first tick attack before duration expiration")
+	}
+	h.pushSnapshot(world.Snapshot{
+		Position: world.Position{X: 0, Y: 1, Z: 0},
+		Entities: []world.Entity{{EntityID: 9, X: 1, Y: 1, Z: 0}},
+	})
+
+	if err := h.waitDone(); err != nil {
+		t.Fatalf("attack duration returned error: %v", err)
+	}
+}
+
 func TestMineSetsSlotAndBreakTarget(t *testing.T) {
 	blocks := newFlatBlocks(-2, 4, -2, 2, 0)
 	target := skill.BlockPos{X: 1, Y: 1, Z: 0}
 	blocks.SetState(target, 1)
 	slot := int8(2)
 
-	h := startBehaviorHarness(t, Mine(target, &slot), blocks, world.Snapshot{Position: world.Position{X: 0, Y: 1, Z: 0}})
+	h := startBehaviorHarness(t, Mine(target, &slot, 0), blocks, world.Snapshot{Position: world.Position{X: 0, Y: 1, Z: 0}})
 	out := h.pullOutput()
 	if out.HotbarSlot == nil || *out.HotbarSlot != 2 {
 		t.Fatalf("expected first tick slot switch, got %+v", out.HotbarSlot)
 	}
 	if out.Attack == nil || !*out.Attack || out.BreakTarget == nil {
 		t.Fatal("expected mine attack output")
+	}
+	if out.BreakFinished != nil && *out.BreakFinished {
+		t.Fatal("unexpected break finished on first tick")
 	}
 
 	blocks.SetState(target, 0)
@@ -367,12 +535,123 @@ func TestMineSetsSlotAndBreakTarget(t *testing.T) {
 	}
 }
 
+func TestMineMarksBreakFinishedAfterEstimatedTicks(t *testing.T) {
+	blocks := newFlatBlocks(-2, 4, -2, 2, 0)
+	target := skill.BlockPos{X: 1, Y: 1, Z: 0}
+	blocks.SetState(target, 1)
+
+	snap := world.Snapshot{Position: world.Position{X: 0, Y: 1, Z: 0}}
+	h := startBehaviorHarness(t, Mine(target, nil, 0), blocks, snap)
+
+	for tick := 1; tick < mineEstimatedBreakTicks; tick++ {
+		out := h.pullOutput()
+		if out.BreakFinished != nil && *out.BreakFinished {
+			t.Fatalf("unexpected break finished at tick %d", tick)
+		}
+		h.pushSnapshot(snap)
+	}
+
+	out := h.pullOutput()
+	if out.BreakFinished == nil || !*out.BreakFinished {
+		t.Fatal("expected mine to mark BreakFinished after estimated break ticks")
+	}
+	if out.BreakTarget == nil {
+		t.Fatal("expected break target when finishing break")
+	}
+
+	blocks.SetState(target, 0)
+	h.pushSnapshot(snap)
+	if err := h.waitDone(); err != nil {
+		t.Fatalf("mine break-finished test returned error: %v", err)
+	}
+}
+
+func TestMineBlockedByWallDoesNotBreak(t *testing.T) {
+	blocks := newFlatBlocks(-4, 8, -4, 4, 0)
+	target := skill.BlockPos{X: 2, Y: 1, Z: 0}
+	blocks.SetState(target, 1)
+	blocks.SetState(skill.BlockPos{X: 1, Y: 1, Z: 0}, 1)
+	blocks.SetState(skill.BlockPos{X: 1, Y: 2, Z: 0}, 1)
+
+	h := startBehaviorHarness(t, Mine(target, nil, 0), blocks, world.Snapshot{Position: world.Position{X: 0, Y: 1, Z: 0}})
+	out := h.pullOutput()
+	if out.Attack != nil && *out.Attack {
+		t.Fatal("expected no mining attack when LOS is blocked")
+	}
+	if out.BreakTarget != nil {
+		t.Fatalf("expected no break target when LOS is blocked, got %+v", out.BreakTarget)
+	}
+
+	h.cancel()
+	if err := h.waitDone(); err != nil {
+		t.Fatalf("mine blocked-by-wall returned error: %v", err)
+	}
+}
+
+func TestMineBreaksSoftOccluderBeforeTarget(t *testing.T) {
+	blocks := newFlatBlocks(-4, 8, -4, 4, 0)
+	target := skill.BlockPos{X: 2, Y: 1, Z: 0}
+	softOccluder := skill.BlockPos{X: 1, Y: 2, Z: 0}
+	blocks.SetState(target, 1)
+	blocks.SetState(softOccluder, 2)
+	blocks.SetName(2, "minecraft:spruce_leaves")
+
+	snap := world.Snapshot{Position: world.Position{X: 0, Y: 1, Z: 0}}
+	h := startBehaviorHarness(t, Mine(target, nil, 0), blocks, snap)
+
+	first := h.pullOutput()
+	if first.Attack == nil || !*first.Attack {
+		t.Fatal("expected first tick to attack soft occluder")
+	}
+	if first.BreakTarget == nil {
+		t.Fatal("expected first tick break target on soft occluder")
+	}
+	if first.BreakTarget.X != softOccluder.X || first.BreakTarget.Y != softOccluder.Y || first.BreakTarget.Z != softOccluder.Z {
+		t.Fatalf("break target=%+v want soft occluder %+v", first.BreakTarget, softOccluder)
+	}
+
+	blocks.SetState(softOccluder, 0)
+	h.pushSnapshot(snap)
+	second := h.pullOutput()
+	if second.Attack == nil || !*second.Attack {
+		t.Fatal("expected to continue mining target after occluder removed")
+	}
+	if second.BreakTarget == nil {
+		t.Fatal("expected break target after occluder removed")
+	}
+	if second.BreakTarget.X != target.X || second.BreakTarget.Y != target.Y || second.BreakTarget.Z != target.Z {
+		t.Fatalf("break target=%+v want target %+v", second.BreakTarget, target)
+	}
+
+	h.cancel()
+	if err := h.waitDone(); err != nil {
+		t.Fatalf("mine soft-occluder case returned error: %v", err)
+	}
+}
+
+func TestMineDurationExpires(t *testing.T) {
+	blocks := newFlatBlocks(-2, 4, -2, 2, 0)
+	target := skill.BlockPos{X: 1, Y: 1, Z: 0}
+	blocks.SetState(target, 1)
+
+	h := startBehaviorHarness(t, Mine(target, nil, 50), blocks, world.Snapshot{Position: world.Position{X: 0, Y: 1, Z: 0}})
+	out := h.pullOutput()
+	if out.Attack == nil || !*out.Attack {
+		t.Fatal("expected mine attack before duration expiration")
+	}
+	h.pushSnapshot(world.Snapshot{Position: world.Position{X: 0, Y: 1, Z: 0}})
+
+	if err := h.waitDone(); err != nil {
+		t.Fatalf("mine duration returned error: %v", err)
+	}
+}
+
 func TestPlaceBlockWaitsForConfirmation(t *testing.T) {
 	blocks := newFlatBlocks(-2, 4, -2, 2, 0)
 	target := skill.BlockPos{X: 1, Y: 1, Z: 0}
 	slot := int8(3)
 
-	h := startBehaviorHarness(t, PlaceBlock(target, 1, &slot), blocks, world.Snapshot{Position: world.Position{X: 0, Y: 1, Z: 0}})
+	h := startBehaviorHarness(t, PlaceBlock(target, 1, &slot, 0), blocks, world.Snapshot{Position: world.Position{X: 0, Y: 1, Z: 0}})
 	out := h.pullOutput()
 	if out.HotbarSlot == nil || *out.HotbarSlot != 3 {
 		t.Fatalf("expected slot switch, got %+v", out.HotbarSlot)
@@ -391,7 +670,7 @@ func TestPlaceBlockWaitsForConfirmation(t *testing.T) {
 func TestPlaceBlockTimeoutWithoutConfirmation(t *testing.T) {
 	blocks := newFlatBlocks(-2, 4, -2, 2, 0)
 	target := skill.BlockPos{X: 1, Y: 1, Z: 0}
-	h := startBehaviorHarness(t, PlaceBlock(target, 1, nil), blocks, world.Snapshot{Position: world.Position{X: 0, Y: 1, Z: 0}})
+	h := startBehaviorHarness(t, PlaceBlock(target, 1, nil, 0), blocks, world.Snapshot{Position: world.Position{X: 0, Y: 1, Z: 0}})
 
 	for i := 0; i < 140; i++ {
 		select {
@@ -414,9 +693,30 @@ func TestPlaceBlockTimeoutWithoutConfirmation(t *testing.T) {
 	}
 }
 
+func TestPlaceBlockBlockedByWallDoesNotPlace(t *testing.T) {
+	blocks := newFlatBlocks(-4, 8, -4, 4, 0)
+	target := skill.BlockPos{X: 2, Y: 1, Z: 0}
+	blocks.SetState(skill.BlockPos{X: 1, Y: 1, Z: 0}, 1)
+	blocks.SetState(skill.BlockPos{X: 1, Y: 2, Z: 0}, 1)
+
+	h := startBehaviorHarness(t, PlaceBlock(target, 1, nil, 0), blocks, world.Snapshot{Position: world.Position{X: 0, Y: 1, Z: 0}})
+	out := h.pullOutput()
+	if out.Use != nil && *out.Use {
+		t.Fatal("expected no place action when LOS is blocked")
+	}
+	if out.PlaceTarget != nil {
+		t.Fatalf("expected no place target when LOS is blocked, got %+v", out.PlaceTarget)
+	}
+
+	h.cancel()
+	if err := h.waitDone(); err != nil {
+		t.Fatalf("place_block blocked-by-wall returned error: %v", err)
+	}
+}
+
 func TestUseItemKeepsUsingAndSlotOnlyOnce(t *testing.T) {
 	slot := int8(1)
-	h := startBehaviorHarness(t, UseItem(&slot), nil, world.Snapshot{Position: world.Position{X: 0, Y: 1, Z: 0}})
+	h := startBehaviorHarness(t, UseItem(&slot, 0), nil, world.Snapshot{Position: world.Position{X: 0, Y: 1, Z: 0}})
 
 	out1 := h.pullOutput()
 	if out1.Use == nil || !*out1.Use {
@@ -441,8 +741,21 @@ func TestUseItemKeepsUsingAndSlotOnlyOnce(t *testing.T) {
 	}
 }
 
+func TestUseItemDurationExpires(t *testing.T) {
+	h := startBehaviorHarness(t, UseItem(nil, 50), nil, world.Snapshot{Position: world.Position{X: 0, Y: 1, Z: 0}})
+	out := h.pullOutput()
+	if out.Use == nil || !*out.Use {
+		t.Fatal("expected use output before duration expiration")
+	}
+	h.pushSnapshot(world.Snapshot{Position: world.Position{X: 0, Y: 1, Z: 0}})
+
+	if err := h.waitDone(); err != nil {
+		t.Fatalf("use_item duration returned error: %v", err)
+	}
+}
+
 func TestSwitchSlotSingleTick(t *testing.T) {
-	h := startBehaviorHarness(t, SwitchSlot(4), nil, world.Snapshot{Position: world.Position{X: 0, Y: 1, Z: 0}})
+	h := startBehaviorHarness(t, SwitchSlot(4, 0), nil, world.Snapshot{Position: world.Position{X: 0, Y: 1, Z: 0}})
 	out := h.pullOutput()
 	if out.HotbarSlot == nil || *out.HotbarSlot != 4 {
 		t.Fatalf("expected switch slot output, got %+v", out.HotbarSlot)

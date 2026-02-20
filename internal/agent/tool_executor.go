@@ -32,6 +32,9 @@ type ToolExecutor struct {
 	SnapshotFn func() world.Snapshot
 	World      BlockAccess
 	Camera     Camera
+	TickIDFn   func() uint64
+
+	SpatialMemory *SpatialMemory
 
 	SpeakChan  chan<- string
 	IntentChan chan<- Intent
@@ -67,6 +70,8 @@ func (e ToolExecutor) ExecuteTool(ctx context.Context, name string, input map[st
 		return e.executeLookAt(input)
 	case "query_block":
 		return e.executeQueryBlock(input)
+	case "query_nearby":
+		return e.executeQueryNearby(input)
 	case "check_inventory":
 		return e.executeCheckInventory()
 	case "speak":
@@ -144,6 +149,11 @@ func (e ToolExecutor) executeLook(input map[string]any) (string, error) {
 		"direction": direction,
 		"blocks":    FormatBlocks(blocks),
 		"entities":  FormatEntities(entities, snap.PlayerList),
+	}
+	if e.SpatialMemory != nil {
+		e.SpatialMemory.UpdateBlocks(blocks, e.currentTickID())
+		e.SpatialMemory.UpdateEntities(entities, e.currentTickID())
+		e.SpatialMemory.GC()
 	}
 	return toJSONString(result), nil
 }
@@ -231,6 +241,94 @@ func (e ToolExecutor) executeQueryBlock(input map[string]any) (string, error) {
 		"state_id": stateID,
 		"name":     name,
 		"solid":    e.World.IsSolid(x, y, z),
+	}
+	return toJSONString(result), nil
+}
+
+func (e ToolExecutor) executeQueryNearby(input map[string]any) (string, error) {
+	if e.SpatialMemory == nil {
+		return toJSONString(map[string]any{"status": "unavailable", "reason": "spatial_memory_not_ready"}), nil
+	}
+
+	snap, err := e.snapshot()
+	if err != nil {
+		return "", err
+	}
+
+	radius := defaultSpatialQueryRadius
+	if rawRadius, ok := asFloat64(input["radius"]); ok && rawRadius > 0 {
+		radius = rawRadius
+	}
+
+	typeFilter := strings.ToLower(strings.TrimSpace(asString(input["type_filter"])))
+	if typeFilter == "" {
+		typeFilter = "all"
+	}
+	if typeFilter != "all" && typeFilter != "entity" && typeFilter != "block" {
+		return "", fmt.Errorf("invalid type_filter: %s", typeFilter)
+	}
+
+	maxAgeSec := 30
+	if rawMaxAgeSec, ok := asInt(input["max_age_sec"]); ok && rawMaxAgeSec > 0 {
+		maxAgeSec = rawMaxAgeSec
+	}
+
+	center := Vec3{X: snap.Position.X, Y: snap.Position.Y, Z: snap.Position.Z}
+	entities, blocks := e.SpatialMemory.QueryNearby(center, radius, time.Duration(maxAgeSec)*time.Second)
+	summaryEntities := entities
+	summaryBlocks := blocks
+	if typeFilter == "entity" {
+		summaryBlocks = nil
+	}
+	if typeFilter == "block" {
+		summaryEntities = nil
+	}
+
+	now := time.Now()
+	entityItems := make([]map[string]any, 0, len(entities))
+	if typeFilter != "block" {
+		for _, memory := range entities {
+			ageSec := int(now.Sub(memory.LastSeen).Seconds())
+			if ageSec < 0 {
+				ageSec = 0
+			}
+			entityItems = append(entityItems, map[string]any{
+				"entity_id":      memory.EntityID,
+				"type":           memory.Type,
+				"name":           memory.Name,
+				"position":       [3]float64{memory.X, memory.Y, memory.Z},
+				"in_fov":         memory.InFOV,
+				"last_seen_sec":  ageSec,
+				"last_seen_tick": memory.TickID,
+			})
+		}
+	}
+
+	blockItems := make([]map[string]any, 0, len(blocks))
+	if typeFilter != "entity" {
+		for _, memory := range blocks {
+			ageSec := int(now.Sub(memory.LastSeen).Seconds())
+			if ageSec < 0 {
+				ageSec = 0
+			}
+			blockItems = append(blockItems, map[string]any{
+				"name":           memory.Name,
+				"position":       memory.Pos,
+				"last_seen_sec":  ageSec,
+				"last_seen_tick": memory.TickID,
+			})
+		}
+	}
+
+	result := map[string]any{
+		"status":      "ok",
+		"center":      [3]float64{center.X, center.Y, center.Z},
+		"radius":      radius,
+		"type_filter": typeFilter,
+		"max_age_sec": maxAgeSec,
+		"entities":    entityItems,
+		"blocks":      blockItems,
+		"summary":     spatialSummaryFromMemories(summaryEntities, summaryBlocks, time.Duration(maxAgeSec)*time.Second),
 	}
 	return toJSONString(result), nil
 }
@@ -409,6 +507,13 @@ func (e ToolExecutor) camera() Camera {
 		return DefaultCamera()
 	}
 	return e.Camera
+}
+
+func (e ToolExecutor) currentTickID() uint64 {
+	if e.TickIDFn == nil {
+		return 0
+	}
+	return e.TickIDFn()
 }
 
 func summarizeInventory(inv InventorySnapshot) string {

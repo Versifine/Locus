@@ -101,7 +101,7 @@ func startBot(ctx context.Context, cfg *config.Config) error {
 		}
 
 		runner := skill.NewBehaviorRunner(b.SendMsgToServer, b.GetState, b)
-		idle := behaviors.IdleSpec()
+		idle := behaviors.IdleSpec(0)
 		if ok := runner.Start(idle.Name, idle.Fn, idle.Channels, idle.Priority); !ok {
 			slog.Warn("Failed to start idle behavior")
 		}

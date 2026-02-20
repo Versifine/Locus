@@ -135,6 +135,25 @@ func parseBlockDigPayload(t *testing.T, packet *protocol.Packet) (int32, int32, 
 	return status, x, y, z, int8(face), sequence
 }
 
+func parseBlockPlacePayload(t *testing.T, packet *protocol.Packet) (int32, int32, int32, int32, int32) {
+	t.Helper()
+	r := bytes.NewReader(packet.Payload)
+	hand, err := protocol.ReadVarint(r)
+	if err != nil {
+		t.Fatalf("ReadVarint(hand) failed: %v", err)
+	}
+	rawPos, err := protocol.ReadInt64(r)
+	if err != nil {
+		t.Fatalf("ReadInt64(position) failed: %v", err)
+	}
+	face, err := protocol.ReadVarint(r)
+	if err != nil {
+		t.Fatalf("ReadVarint(face) failed: %v", err)
+	}
+	x, y, z := decodePackedPosition(rawPos)
+	return hand, x, y, z, face
+}
+
 func decodePackedPosition(raw int64) (int32, int32, int32) {
 	v := uint64(raw)
 	x := signExtendInt32(int64((v>>38)&0x3FFFFFF), 26)
@@ -484,13 +503,39 @@ func TestBodyTickUsePlaceTargetSendsBlockPlace(t *testing.T) {
 	if packet == nil {
 		t.Fatalf("missing packet ID %d", protocol.C2SBlockPlace)
 	}
-	r := bytes.NewReader(packet.Payload)
-	_, _ = protocol.ReadVarint(r) // hand
-	rawPos, _ := protocol.ReadInt64(r)
-	face, _ := protocol.ReadVarint(r)
-	x, y, z := decodePackedPosition(rawPos)
-	if x != 1 || y != 64 || z != 2 || face != 1 {
-		t.Fatalf("block_place payload pos=(%d,%d,%d) face=%d", x, y, z, face)
+	hand, x, y, z, face := parseBlockPlacePayload(t, packet)
+	if hand != 0 {
+		t.Fatalf("block_place hand=%d, want 0 (main hand)", hand)
+	}
+	if x != 1 || y != 63 || z != 2 || face != 1 {
+		t.Fatalf("block_place payload clicked=(%d,%d,%d) face=%d", x, y, z, face)
+	}
+}
+
+func TestBodyTickUsePlaceTargetFaceDoesNotLeakIntoHand(t *testing.T) {
+	store := newMockBlockStore()
+	addFloor(store, -4, 4, -4, 4, -1)
+	sender := &mockPacketSender{}
+	b := New(world.Position{X: 0.5, Y: 0.0, Z: 0.5}, true, sender, store, nil)
+
+	place := physics.PlaceAction{Pos: physics.BlockPos{X: 10, Y: 70, Z: 20}, Face: 5}
+	if err := b.Tick(InputState{Use: true, PlaceTarget: &place}); err != nil {
+		t.Fatalf("Tick failed: %v", err)
+	}
+
+	packet := lastPacketByID(sender.packets, protocol.C2SBlockPlace)
+	if packet == nil {
+		t.Fatalf("missing packet ID %d", protocol.C2SBlockPlace)
+	}
+	hand, x, y, z, face := parseBlockPlacePayload(t, packet)
+	if hand != 0 {
+		t.Fatalf("block_place hand=%d, want 0 (main hand)", hand)
+	}
+	if face != 5 {
+		t.Fatalf("block_place face=%d, want 5", face)
+	}
+	if x != 9 || y != 70 || z != 20 {
+		t.Fatalf("block_place clicked=(%d,%d,%d), want (9,70,20)", x, y, z)
 	}
 }
 
@@ -607,6 +652,52 @@ func TestBodyTickBreakHoldDoesNotResendStart(t *testing.T) {
 	}
 	if statuses[1] != protocol.BlockDigStatusCancelled {
 		t.Fatalf("second status = %d, want %d", statuses[1], protocol.BlockDigStatusCancelled)
+	}
+}
+
+func TestBodyTickBreakFinishedSendsFinishAndClearsActiveTarget(t *testing.T) {
+	store := newMockBlockStore()
+	addFloor(store, -4, 4, -4, 4, -1)
+	sender := &mockPacketSender{}
+	b := New(world.Position{X: 0.5, Y: 0.0, Z: 0.5}, true, sender, store, nil)
+
+	target := physics.BlockPos{X: 2, Y: 64, Z: 1}
+	if err := b.Tick(InputState{Attack: true, BreakTarget: &target}); err != nil {
+		t.Fatalf("first tick failed: %v", err)
+	}
+	if err := b.Tick(InputState{Attack: true, BreakTarget: &target, BreakFinished: true}); err != nil {
+		t.Fatalf("second tick failed: %v", err)
+	}
+	if err := b.Tick(InputState{Attack: true, BreakTarget: &target}); err != nil {
+		t.Fatalf("third tick failed: %v", err)
+	}
+	if err := b.Tick(InputState{}); err != nil {
+		t.Fatalf("fourth tick failed: %v", err)
+	}
+
+	var statuses []int32
+	for _, packet := range sender.packets {
+		if packet.ID != protocol.C2SBlockDig {
+			continue
+		}
+		status, _, _, _, _, _ := parseBlockDigPayload(t, packet)
+		statuses = append(statuses, status)
+	}
+
+	if len(statuses) != 4 {
+		t.Fatalf("block_dig count = %d, want 4", len(statuses))
+	}
+	if statuses[0] != protocol.BlockDigStatusStarted {
+		t.Fatalf("status[0] = %d, want started", statuses[0])
+	}
+	if statuses[1] != protocol.BlockDigStatusFinished {
+		t.Fatalf("status[1] = %d, want finished", statuses[1])
+	}
+	if statuses[2] != protocol.BlockDigStatusStarted {
+		t.Fatalf("status[2] = %d, want started", statuses[2])
+	}
+	if statuses[3] != protocol.BlockDigStatusCancelled {
+		t.Fatalf("status[3] = %d, want cancelled", statuses[3])
 	}
 }
 

@@ -15,6 +15,7 @@ type PartialInput struct {
 
 	AttackTarget   *int32
 	BreakTarget    *physics.BlockPos
+	BreakFinished  *bool
 	PlaceTarget    *physics.PlaceAction
 	InteractTarget *int32
 	HotbarSlot     *int8

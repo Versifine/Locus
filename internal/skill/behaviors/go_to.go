@@ -6,7 +6,7 @@ import (
 	"github.com/Versifine/locus/internal/skill"
 )
 
-func GoTo(x, y, z int, sprint bool) skill.BehaviorFunc {
+func GoTo(x, y, z int, sprint bool, durationMs int) skill.BehaviorFunc {
 	target := skill.BlockPos{X: x, Y: y, Z: z}
 
 	return func(bctx skill.BehaviorCtx) error {
@@ -16,6 +16,7 @@ func GoTo(x, y, z int, sprint bool) skill.BehaviorFunc {
 
 		snap := bctx.Snapshot()
 		nav := newPathNavigator(64, defaultNearDist)
+		timedOut := durationCheck(durationMs)
 
 		for {
 			partial, done, err := nav.Tick(snap, target, bctx.Blocks, sprint)
@@ -31,6 +32,9 @@ func GoTo(x, y, z int, sprint bool) skill.BehaviorFunc {
 				return nil
 			}
 			snap = next
+			if timedOut() {
+				return nil
+			}
 		}
 	}
 }

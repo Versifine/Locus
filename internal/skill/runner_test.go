@@ -27,9 +27,10 @@ func TestBehaviorRunnerTickMergeAndChannels(t *testing.T) {
 	}
 	handsFn := func(bctx BehaviorCtx) error {
 		attack := true
+		breakFinished := true
 		handsStarted <- struct{}{}
 		for {
-			_, ok := step(bctx, PartialInput{Attack: &attack})
+			_, ok := step(bctx, PartialInput{Attack: &attack, BreakFinished: &breakFinished})
 			if !ok {
 				return nil
 			}
@@ -52,9 +53,10 @@ func TestBehaviorRunnerTickMergeAndChannels(t *testing.T) {
 	_ = input
 
 	var got struct {
-		Forward bool
-		Yaw     float32
-		Attack  bool
+		Forward       bool
+		Yaw           float32
+		Attack        bool
+		BreakFinished bool
 	}
 
 	eventually(t, time.Second, func() bool {
@@ -62,7 +64,8 @@ func TestBehaviorRunnerTickMergeAndChannels(t *testing.T) {
 		got.Forward = in.Forward
 		got.Yaw = in.Yaw
 		got.Attack = in.Attack
-		return got.Forward && got.Attack && got.Yaw == 90
+		got.BreakFinished = in.BreakFinished
+		return got.Forward && got.Attack && got.BreakFinished && got.Yaw == 90
 	})
 
 	runner.CancelAll()
