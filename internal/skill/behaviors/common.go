@@ -76,8 +76,13 @@ func clickedBlockFromPlaceDest(dest skill.BlockPos, face int) skill.BlockPos {
 }
 
 func raycastClear(blocks skill.BlockAccess, from, to skill.Vec3, excludeBlock *skill.BlockPos) bool {
+	_, blocked := raycastFirstSolid(blocks, from, to, excludeBlock)
+	return !blocked
+}
+
+func raycastFirstSolid(blocks skill.BlockAccess, from, to skill.Vec3, excludeBlock *skill.BlockPos) (skill.BlockPos, bool) {
 	if blocks == nil {
-		return false
+		return skill.BlockPos{}, false
 	}
 
 	dx := to.X - from.X
@@ -85,7 +90,7 @@ func raycastClear(blocks skill.BlockAccess, from, to skill.Vec3, excludeBlock *s
 	dz := to.Z - from.Z
 	dist := math.Sqrt(dx*dx + dy*dy + dz*dz)
 	if dist < 1e-6 {
-		return true
+		return skill.BlockPos{}, false
 	}
 
 	maxDist := raycastStepSize * float64(raycastMaxSteps)
@@ -132,11 +137,11 @@ func raycastClear(blocks skill.BlockAccess, from, to skill.Vec3, excludeBlock *s
 			continue
 		}
 		if blocks.IsSolid(pos.X, pos.Y, pos.Z) {
-			return false
+			return pos, true
 		}
 	}
 
-	return true
+	return skill.BlockPos{}, false
 }
 
 func isAirAt(blocks skill.BlockAccess, pos skill.BlockPos) bool {

@@ -13,15 +13,28 @@ import (
 type mockBlocks struct {
 	mu     sync.RWMutex
 	states map[skill.BlockPos]int32
+	names  map[int32]string
 }
 
 func newMockBlocks() *mockBlocks {
-	return &mockBlocks{states: make(map[skill.BlockPos]int32)}
+	return &mockBlocks{
+		states: make(map[skill.BlockPos]int32),
+		names: map[int32]string{
+			0: "air",
+			1: "stone",
+		},
+	}
 }
 
 func (m *mockBlocks) SetState(pos skill.BlockPos, state int32) {
 	m.mu.Lock()
 	m.states[pos] = state
+	m.mu.Unlock()
+}
+
+func (m *mockBlocks) SetName(state int32, name string) {
+	m.mu.Lock()
+	m.names[state] = name
 	m.mu.Unlock()
 }
 
@@ -36,10 +49,13 @@ func (m *mockBlocks) GetBlockState(x, y, z int) (int32, bool) {
 }
 
 func (m *mockBlocks) GetBlockNameByStateID(stateID int32) (string, bool) {
-	if stateID == 0 {
-		return "air", true
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	name, ok := m.names[stateID]
+	if ok {
+		return name, true
 	}
-	return "stone", true
+	return "state", false
 }
 
 func (m *mockBlocks) IsSolid(x, y, z int) bool {
@@ -527,6 +543,47 @@ func TestMineBlockedByWallDoesNotBreak(t *testing.T) {
 	h.cancel()
 	if err := h.waitDone(); err != nil {
 		t.Fatalf("mine blocked-by-wall returned error: %v", err)
+	}
+}
+
+func TestMineBreaksSoftOccluderBeforeTarget(t *testing.T) {
+	blocks := newFlatBlocks(-4, 8, -4, 4, 0)
+	target := skill.BlockPos{X: 2, Y: 1, Z: 0}
+	softOccluder := skill.BlockPos{X: 1, Y: 2, Z: 0}
+	blocks.SetState(target, 1)
+	blocks.SetState(softOccluder, 2)
+	blocks.SetName(2, "minecraft:spruce_leaves")
+
+	snap := world.Snapshot{Position: world.Position{X: 0, Y: 1, Z: 0}}
+	h := startBehaviorHarness(t, Mine(target, nil), blocks, snap)
+
+	first := h.pullOutput()
+	if first.Attack == nil || !*first.Attack {
+		t.Fatal("expected first tick to attack soft occluder")
+	}
+	if first.BreakTarget == nil {
+		t.Fatal("expected first tick break target on soft occluder")
+	}
+	if first.BreakTarget.X != softOccluder.X || first.BreakTarget.Y != softOccluder.Y || first.BreakTarget.Z != softOccluder.Z {
+		t.Fatalf("break target=%+v want soft occluder %+v", first.BreakTarget, softOccluder)
+	}
+
+	blocks.SetState(softOccluder, 0)
+	h.pushSnapshot(snap)
+	second := h.pullOutput()
+	if second.Attack == nil || !*second.Attack {
+		t.Fatal("expected to continue mining target after occluder removed")
+	}
+	if second.BreakTarget == nil {
+		t.Fatal("expected break target after occluder removed")
+	}
+	if second.BreakTarget.X != target.X || second.BreakTarget.Y != target.Y || second.BreakTarget.Z != target.Z {
+		t.Fatalf("break target=%+v want target %+v", second.BreakTarget, target)
+	}
+
+	h.cancel()
+	if err := h.waitDone(); err != nil {
+		t.Fatalf("mine soft-occluder case returned error: %v", err)
 	}
 }
 
